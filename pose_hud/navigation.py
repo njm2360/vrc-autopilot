@@ -4,7 +4,12 @@ from collections import deque
 from dataclasses import dataclass
 
 import numpy as np
-from scipy.ndimage import binary_dilation, generate_binary_structure, label
+from scipy.ndimage import (
+    binary_dilation,
+    distance_transform_edt,
+    generate_binary_structure,
+    label,
+)
 
 from .mapping import Bounds, RoomMapper
 
@@ -103,40 +108,57 @@ class NavGrid:
         # 外側 + 壁(=軌跡そのもの)の両方に avatar_radius のクリアランスを付けて塞ぐ。
         # walked を含めることで内壁・柱などの浮いた壁も障害物になる。
         radius_cells = max(0, math.ceil(avatar_radius / cell))
-        blocked = _dilate(exterior, radius_cells, connectivity=8) | _dilate(
-            walked, radius_cells, connectivity=8
-        )
+        blocked = _dilate(exterior | walked, radius_cells, connectivity=8)
         free = ~blocked
         return cls(free=free, cell=cell, bounds=occ.bounds)
 
 
-def _astar(free: np.ndarray, start: tuple[int, int], goal: tuple[int, int]):
-    """8連結 A*。角抜け(壁の対角すり抜け)を禁止。セル列を返す(無ければ None)。"""
+def _astar(
+    free: np.ndarray,
+    start: tuple[int, int],
+    goal: tuple[int, int],
+    cost_mult: np.ndarray | None = None,
+):
+    """8連結 A*。角抜け(壁の対角すり抜け)を禁止。セル列を返す(無ければ None)。
+
+    cost_mult (>=1) を渡すと、そのセルへ入る移動コストが距離×cost_mult になる。
+    壁際セルに大きい値を与えることで「通れるが避けたい」ソフトコストを表現できる
+    (硬い障害物にはしないので、狭い通路の到達性は落ちない)。
+    ペナルティは非負なのでユークリッド距離ヒューリスティックは許容的なまま。
+    """
     rows, cols = free.shape
     if not free[start] or not free[goal]:
         return None
     if start == goal:
         return [start]
 
-    sr, sc = start
     gr, gc = goal
-    open_heap = [(0.0, start)]
+    open_heap = [(math.hypot(start[0] - gr, start[1] - gc), 0.0, start)]
     came: dict[tuple[int, int], tuple[int, int]] = {}
     gscore = {start: 0.0}
     SQRT2 = math.sqrt(2.0)
-    neighbors = [(1, 0, 1.0), (-1, 0, 1.0), (0, 1, 1.0), (0, -1, 1.0),
-                 (1, 1, SQRT2), (1, -1, SQRT2), (-1, 1, SQRT2), (-1, -1, SQRT2)]
+    neighbors = [
+        (1, 0, 1.0),
+        (-1, 0, 1.0),
+        (0, 1, 1.0),
+        (0, -1, 1.0),
+        (1, 1, SQRT2),
+        (1, -1, SQRT2),
+        (-1, 1, SQRT2),
+        (-1, -1, SQRT2),
+    ]
 
     while open_heap:
-        _, cur = heapq.heappop(open_heap)
+        _, g, cur = heapq.heappop(open_heap)
         if cur == goal:
             path = [cur]
             while cur in came:
                 cur = came[cur]
                 path.append(cur)
             return path[::-1]
+        if g > gscore.get(cur, math.inf):  # より良い経路で再登録済み(stale)
+            continue
         r, c = cur
-        base = gscore[cur]
         for dr, dc, cost in neighbors:
             nr, nc = r + dr, c + dc
             if not (0 <= nr < rows and 0 <= nc < cols) or not free[nr, nc]:
@@ -144,46 +166,82 @@ def _astar(free: np.ndarray, start: tuple[int, int], goal: tuple[int, int]):
             if dr != 0 and dc != 0:  # 角抜け防止: 対角は両隣が空いている時のみ
                 if not free[r + dr, c] or not free[r, c + dc]:
                     continue
-            ng = base + cost
+            if cost_mult is not None:
+                cost = cost * cost_mult[nr, nc]
+            ng = g + cost
             if ng < gscore.get((nr, nc), math.inf):
                 gscore[(nr, nc)] = ng
                 came[(nr, nc)] = cur
                 h = math.hypot(nr - gr, nc - gc)
-                heapq.heappush(open_heap, (ng + h, (nr, nc)))
+                heapq.heappush(open_heap, (ng + h, ng, (nr, nc)))
     return None
 
 
-def _visible(free: np.ndarray, a: tuple[int, int], b: tuple[int, int]) -> bool:
-    """セル a→b の直線が全て free を通るか(見通し判定)。"""
+def _segment_min_clearance(
+    free: np.ndarray,
+    clearance: np.ndarray,
+    a: tuple[int, int],
+    b: tuple[int, int],
+) -> float:
+    """セル a→b の線分を密サンプルし、通過セルの最小クリアランス[セル]を返す。
+
+    塞がりセルに触れる、または壁の対角すり抜け(A*と同じ角抜け条件)がある場合は -1。
+    サンプル間隔は 0.25 セルなので、経由点間の線分が角を掠めるケースも拾う
+    """
     (r0, c0), (r1, c1) = a, b
-    steps = max(abs(r1 - r0), abs(c1 - c0))
-    if steps == 0:
-        return free[r0, c0]
+    dist = math.hypot(r1 - r0, c1 - c0)
+    steps = max(1, int(dist * 4))
+    min_clear = math.inf
+    pr, pc = r0, c0
     for i in range(steps + 1):
         t = i / steps
         r = int(round(r0 + (r1 - r0) * t))
         c = int(round(c0 + (c1 - c0) * t))
         if not free[r, c]:
-            return False
-    return True
+            return -1.0
+        if r != pr and c != pc:  # 対角のセル遷移: 両隣が空いていなければ角抜け
+            if not free[pr, c] or not free[r, pc]:
+                return -1.0
+        cl = float(clearance[r, c])
+        if cl < min_clear:
+            min_clear = cl
+        pr, pc = r, c
+    return min_clear
 
 
-def _los_simplify(free: np.ndarray, cells: list[tuple[int, int]]) -> list[tuple[int, int]]:
-    """壁に遮られない直線で経路を間引く。
+def _los_simplify(
+    free: np.ndarray,
+    cells: list[tuple[int, int]],
+    clearance: np.ndarray,
+    margin_cells: float,
+) -> list[tuple[int, int]]:
+    """壁に遮られず、クリアランスを損なわない直線で経路を間引く。
 
-    A* のジグザグ(対角の階段状)を、壁に当たらない限り直線で結び直し、経由点を最小化する。
-    連続追従が滑らかになる。
+    A* のジグザグ(対角の階段状)を直線で結び直して経由点を最小化する。ただし、
+    ショートカットの直線が「元の A* 区間の最小クリアランス(margin_cells で頭打ち)」
+    を下回って壁・角に寄る場合は採用しない。A* が角を大きく回った意図を直線化で
+    打ち消さないため。狭い通路では元区間のクリアランス自体が小さいので、同等の
+    直線は許容される(到達性は落ちない)。
     """
     if len(cells) <= 2:
         return cells
     out = [cells[0]]
     anchor = 0  # 現在の直線区間の起点
+    sub_min = float(clearance[cells[0]])  # anchor..i を結ぶ A* 区間の最小クリアランス
     i = 1
     while i < len(cells) - 1:
-        # 起点から次の点まで直線で見通せる間は伸ばし、見通せなくなる直前で確定する
-        if not _visible(free, cells[anchor], cells[i + 1]):
+        # 起点から次の点まで見通せる間は伸ばし、見通せなくなる直前で確定する
+        cand_min = min(
+            sub_min, float(clearance[cells[i]]), float(clearance[cells[i + 1]])
+        )
+        need = min(margin_cells, cand_min)
+        seg_min = _segment_min_clearance(free, clearance, cells[anchor], cells[i + 1])
+        if seg_min + 1e-9 < need:  # 壁越し(-1)またはクリアランス悪化
             out.append(cells[i])
             anchor = i
+            sub_min = float(clearance[cells[i]])
+        else:
+            sub_min = cand_min
         i += 1
     out.append(cells[-1])
     return out
@@ -193,18 +251,27 @@ def _los_simplify(free: np.ndarray, cells: list[tuple[int, int]]) -> list[tuple[
 class Path:
     """計画された経路。"""
 
-    waypoints: list[tuple[float, float]]      # XZ [m] の経由点列(start→goal付近)
-    length: float                             # 総距離 [m]
-    reached_goal_cell: tuple[float, float]    # 実際に到達するゴール寄りセルのXZ
-    goal_blocked: bool                        # 目標が壁で、最寄り床に迂回したか
+    waypoints: list[tuple[float, float]]  # XZ [m] の経由点列(start→goal付近)
+    length: float  # 総距離 [m]
+    reached_goal_cell: tuple[float, float]  # 実際に到達するゴール寄りセルのXZ
+    goal_blocked: bool  # 目標が壁で、最寄り床に迂回したか
 
 
 def plan_path(
-    grid: NavGrid, start_xz: tuple[float, float], goal_xz: tuple[float, float]
+    grid: NavGrid,
+    start_xz: tuple[float, float],
+    goal_xz: tuple[float, float],
+    *,
+    margin: float = 0.3,
+    margin_weight: float = 6.0,
 ) -> Path | None:
     """start から goal まで壁を避けた経路を計画する。到達不能なら None。
 
     goal が歩けないセル(壁面のボタン等)なら、最寄りの歩けるセルまでの経路にする。
+
+    壁際はソフトコストで避ける: 塞がりセルからの距離が ``margin`` [m] 未満のセルは
+    移動コストが最大 (1 + margin_weight) 倍になる(margin=0 で無効)。障害物を
+    増やすわけではないので、margin より狭い通路も通れる(遠回りが無ければ通る)。
     """
     sc = grid.world_to_cell(*start_xz)
     gc = grid.world_to_cell(*goal_xz)
@@ -220,10 +287,19 @@ def plan_path(
             return None
         gc = nf
 
-    cells = _astar(grid.free, sc, gc)
+    # 各 free セルから最寄りの塞がりセルまでの距離[セル](塞がりセルは 0)
+    clearance = distance_transform_edt(grid.free)
+    margin_cells = max(0.0, margin / grid.cell)
+    cost_mult = None
+    if margin_cells > 0.0 and margin_weight > 0.0:
+        pen = np.clip(1.0 - clearance / margin_cells, 0.0, 1.0) ** 2
+        cost_mult = 1.0 + margin_weight * pen
+
+    cells = _astar(grid.free, sc, gc, cost_mult)
     if cells is None:
         return None
-    cells = _los_simplify(grid.free, cells)          # 見通しで直線化(ジグザグ除去)
+    # 見通しで直線化(ジグザグ除去)。クリアランスを損なう直線化はしない
+    cells = _los_simplify(grid.free, cells, clearance, margin_cells)
     waypoints = [grid.cell_to_world(r, c) for (r, c) in cells]
 
     length = 0.0
@@ -278,9 +354,14 @@ def aim_angle(
     target_xyz: tuple[float, float, float],
 ) -> float:
     """視線 forward と「視点→ボタン」方向との実際のなす角[deg](総合ずれの指標)。"""
-    d = np.array([target_xyz[0] - eye_xyz[0],
-                  target_xyz[1] - eye_xyz[1],
-                  target_xyz[2] - eye_xyz[2]], dtype=np.float64)
+    d = np.array(
+        [
+            target_xyz[0] - eye_xyz[0],
+            target_xyz[1] - eye_xyz[1],
+            target_xyz[2] - eye_xyz[2],
+        ],
+        dtype=np.float64,
+    )
     n = np.linalg.norm(d)
     if n < 1e-9:
         return 0.0

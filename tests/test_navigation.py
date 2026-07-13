@@ -172,6 +172,91 @@ def test_unreachable_returns_none():
     assert plan_path(grid, (1.0, 1.0), (2.0, 2.0)) is None
 
 
+# ---- クリアランス(線分密サンプル採点) ----------------------------------
+def _sample_segments(waypoints, step=0.02):
+    """経由点間の線分を step [m] 刻みで密サンプルした点列。
+
+    経由点だけの採点では線分が角を掠めるのを見逃すため、必ず線分全体を評価する。
+    """
+    out = []
+    for a, b in zip(waypoints, waypoints[1:]):
+        d = math.hypot(b[0] - a[0], b[1] - a[1])
+        n = max(1, int(d / step))
+        for i in range(n):
+            f = i / n
+            out.append((a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f))
+    out.append(tuple(waypoints[-1]))
+    return np.asarray(out)
+
+
+def _min_wall_clearance(waypoints, wall_corners):
+    """経路(線分密サンプル)から実際の壁軌跡までの最小距離 [m]。"""
+    samples = _sample_segments(waypoints)
+    walls = np.asarray(_trace(wall_corners, step=0.01))
+    d = np.sqrt(((samples[:, None, :] - walls[None, :, :]) ** 2).sum(-1))
+    return float(d.min(axis=1).min())
+
+
+def _assert_segments_all_free(grid, waypoints):
+    for x, z in _sample_segments(waypoints):
+        r, c = grid.world_to_cell(x, z)
+        assert grid.is_free(r, c), f"segment enters blocked cell at ({x:.2f}, {z:.2f})"
+
+
+L_CORNERS = [(0, 0), (6, 0), (6, 2), (2, 2), (2, 6), (0, 6)]
+
+
+def test_path_keeps_margin_from_concave_corner():
+    # L字の凹角 (2,2) を回り込む経路が、壁ギリギリ(radius+ラスタ誤差)を攻めない。
+    # avatar_radius=0.2 に対し、線分密サンプルの最小クリアランスで radius+0.2 を要求。
+    grid = NavGrid.from_mapper(l_shaped_mapper(), cell=0.1, avatar_radius=0.2, gap_close=0.3)
+    path = plan_path(grid, (5.0, 1.0), (1.0, 5.0))
+    assert path is not None
+    assert _min_wall_clearance(path.waypoints, L_CORNERS) >= 0.4
+    _assert_segments_all_free(grid, path.waypoints)
+
+
+def test_los_segments_never_cross_blocked_cells():
+    # 間仕切り部屋: 直線化後の各線分も(経由点だけでなく)全長にわたり free を通る
+    grid = NavGrid.from_mapper(partitioned_room_mapper(), cell=0.1, avatar_radius=0.2)
+    path = plan_path(grid, (2.0, 3.0), (8.0, 3.0))
+    assert path is not None
+    _assert_segments_all_free(grid, path.waypoints)
+
+
+DUMBBELL_CORNERS = [
+    (0, 0), (4, 0), (4, 1.7), (6, 1.7), (6, 0), (10, 0),
+    (10, 4), (6, 4), (6, 2.4), (4, 2.4), (4, 4), (0, 4),
+]
+
+
+def dumbbell_mapper():
+    # 2部屋を幅 0.7m の狭い通路(x∈[4,6], z∈[1.7,2.4])でつなぐ
+    m = RoomMapper(min_move=0.0)
+    for x, z in _trace(DUMBBELL_CORNERS):
+        m.add(x, 1.6, z)
+    return m
+
+
+def test_narrow_corridor_stays_reachable_with_margin():
+    # margin(壁際ソフトコスト)は狭通路を塞がない: radius=0.2 + 通路0.7m でも通れる
+    grid = NavGrid.from_mapper(dumbbell_mapper(), cell=0.1, avatar_radius=0.2, gap_close=0.3)
+    path = plan_path(grid, (2.0, 2.0), (8.0, 2.0))
+    assert path is not None
+    _assert_segments_all_free(grid, path.waypoints)
+    # 通路内はほぼ中央を通る(半幅0.35に対して0.25以上のクリアランス)
+    assert _min_wall_clearance(path.waypoints, DUMBBELL_CORNERS) >= 0.25
+
+
+def test_open_room_margin_does_not_bend_far_path():
+    # 壁から十分離れた直線経路は margin の影響を受けず直線のまま
+    grid = NavGrid.from_mapper(rectangle_mapper(6.0, 5.0), cell=0.1, avatar_radius=0.2)
+    path = plan_path(grid, (1.0, 1.0), (5.0, 4.0))
+    assert path is not None
+    straight = math.hypot(4.0, 3.0)
+    assert path.length == pytest.approx(straight, rel=0.15)
+
+
 # ---- steering(純粋関数) ------------------------------------------------
 def test_steering_straight_ahead():
     # +Z を向いて (0,0) にいる。目標が真正面 (0, 5) → 誤差0・前進
