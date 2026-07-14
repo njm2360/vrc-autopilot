@@ -67,10 +67,15 @@ class FaceControllers:
 
 @dataclass
 class PatrolGains:
-    """巡回制御のチューニング定数一式(既定値はここに集約)。"""
+    """巡回制御のチューニング定数一式(既定値はここに集約)。
+
+    既定値は同定プラント(plant.json)上の自律探索(sim-face 相当)で調整した暫定値。
+    実機(patrol-buttons)で答え合わせして更新すること(gain-tuning.md 参照)。
+    """
 
     # ---- 移動・到達 ----
-    speed: float = 0.7  # 巡航前進速度の上限(0..1)
+    speed: float = 0.9  # 巡航前進速度の上限(0..1)。狭所ではコーナー切りで壁に擦る
+    #                     ことがあるが、経路追従で戻れるので許容する
     arrive: float = 0.35  # ウェイポイント到達半径[m]
     standoff: float = 1.0  # ボタン正面で止まる距離[m](Use到達距離内に収める)
     # ---- 収束判定・打切り ----
@@ -79,24 +84,24 @@ class PatrolGains:
     nav_timeout: float = 60.0  # 移動の打切り秒
     face_timeout: float = 12.0  # 正対の打切り秒
     # ---- 移動中(nav)の yaw: 穏やか・不感帯補償なし ----
-    nav_turn_kp: float = 0.035
-    nav_turn_ki: float = 0.015
+    nav_turn_kp: float = 0.07
+    nav_turn_ki: float = 0.025
     nav_turn_kd: float = 0.004
     # ---- 前進速度(最終ウェイポイントの減速): 誤差=距離[m] ----
-    fwd_kp: float = 1.5
-    fwd_kd: float = 0.1
-    # ---- 正対(face)の yaw: 視点軸が反応しない範囲(≈0.55)を out_deadzone で飛び越える ----
+    fwd_kp: float = 2.0
+    fwd_kd: float = 0.05
+    # ---- 正対(face)の yaw: 視点軸が反応しない範囲(≈0.50)を out_deadzone で飛び越える ----
     turn_kp: float = 0.08
     turn_ki: float = 0.01
-    turn_kd: float = 0.006
+    turn_kd: float = 0.004
     turn_ilim: float = 0.5  # yaw積分項の絶対上限
-    turn_deadzone: float = 0.55  # 視点軸の不感帯補償(反応しない範囲。0で無効)
-    # ---- 正対(face)の pitch ----
-    pitch_kp: float = 0.035
+    turn_deadzone: float = 0.50  # 視点軸の不感帯補償(反応しない範囲=実測オンセット。0で無効)
+    # ---- 正対(face)の pitch: pitch 軸にも不感帯(≈0.10)があるので補償する ----
+    pitch_kp: float = 0.07
     pitch_ki: float = 0.015
     pitch_kd: float = 0.004
     pitch_ilim: float = 0.5
-    pitch_deadzone: float = 0.0  # 既定0=無効。上下がなかなか合わないなら 0.5 程度
+    pitch_deadzone: float = 0.11  # 実測オンセット。0=無効だと tol 直上で止まり未収束することがある
     # ---- 最終照準(align): 視点は回さず横移動で詰める ----
     align_tol: float = 0.02  # 横ずれの収束閾値[m]。0で align 無効
     align_timeout: float = 8.0  # 打切り秒
