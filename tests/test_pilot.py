@@ -13,7 +13,7 @@ import numpy as np
 import pytest
 
 from pose_hud.controller import PatrolGains, face_controllers, nav_controllers
-from pose_hud.decode import Pose
+from pose_hud.pose import Pose
 from pose_hud.mapping import Bounds
 from pose_hud.navigation import NavGrid
 from pose_hud.maneuvers import aim_at, follow_path, turn_to

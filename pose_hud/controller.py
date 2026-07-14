@@ -9,7 +9,7 @@
 
 from dataclasses import dataclass
 
-from .control import PID
+from .pid import PID
 
 
 @dataclass

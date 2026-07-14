@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from pose_hud.actuator import LookActuator, MoveActuator, MouseLookActuator
-from pose_hud.control import PID
+from pose_hud.pid import PID
 from pose_hud.controller import (
     AxisController,
     PatrolGains,

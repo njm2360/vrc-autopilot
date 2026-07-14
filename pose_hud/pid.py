@@ -2,11 +2,6 @@ import math
 from dataclasses import dataclass, field
 
 
-def wrap180(deg: float) -> float:
-    """角度を (-180, 180] に正規化する(最短回りの誤差に使う)。"""
-    return (deg + 180.0) % 360.0 - 180.0
-
-
 @dataclass
 class PID:
     """離散 PID。

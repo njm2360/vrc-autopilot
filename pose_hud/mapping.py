@@ -16,7 +16,7 @@ from typing import Iterable
 
 import numpy as np
 
-from .decode import Pose
+from .pose import Pose
 
 
 @dataclass(frozen=True)

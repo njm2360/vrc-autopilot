@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 from pose_hud.mapping import RoomMapper
-from pose_hud.navigation import NavGrid, plan_path, steering
+from pose_hud.navigation import NavGrid, plan_path
 
 
 def _trace(corners, step=0.05):
@@ -141,18 +141,6 @@ def test_los_smoothing_keeps_detour_around_wall():
     assert len(path.waypoints) >= 3                    # 直線1本にはならない
 
 
-def test_forward_factor_smooth_decay():
-    from pose_hud.navigation import forward_factor
-
-    assert forward_factor(0.0) == pytest.approx(1.0)
-    assert forward_factor(60.0) == pytest.approx(0.5, abs=1e-6)
-    assert forward_factor(90.0) == 0.0
-    assert forward_factor(120.0) == 0.0
-    # 単調減少(その場停止のような不連続がない)
-    vals = [forward_factor(a) for a in range(0, 95, 5)]
-    assert all(vals[i] >= vals[i + 1] for i in range(len(vals) - 1))
-
-
 def test_goal_on_wall_routes_to_nearest_free():
     grid = NavGrid.from_mapper(rectangle_mapper(6.0, 5.0), cell=0.1, avatar_radius=0.2)
     # 壁の外にあるボタン → 最寄りの床へ迂回、goal_blocked フラグが立つ
@@ -255,27 +243,3 @@ def test_open_room_margin_does_not_bend_far_path():
     assert path is not None
     straight = math.hypot(4.0, 3.0)
     assert path.length == pytest.approx(straight, rel=0.15)
-
-
-# ---- steering(純粋関数) ------------------------------------------------
-def test_steering_straight_ahead():
-    # +Z を向いて (0,0) にいる。目標が真正面 (0, 5) → 誤差0・前進
-    fwd, turn, dist, err = steering((0.0, 0.0), 0.0, (0.0, 5.0))
-    assert fwd == 1.0
-    assert turn == pytest.approx(0.0, abs=1e-9)
-    assert dist == pytest.approx(5.0)
-    assert err == pytest.approx(0.0, abs=1e-9)
-
-
-def test_steering_target_to_the_right_turns_right():
-    # +Z を向いて (0,0)。目標が右 (+X) → desired_yaw=90、右旋回(turn>0)、正対まで前進しない
-    fwd, turn, dist, err = steering((0.0, 0.0), 0.0, (5.0, 0.0))
-    assert err == pytest.approx(90.0)
-    assert turn > 0.0
-    assert fwd == 0.0
-
-
-def test_steering_behind_turns_and_no_forward():
-    fwd, turn, dist, err = steering((0.0, 0.0), 0.0, (0.0, -5.0))
-    assert abs(err) == pytest.approx(180.0)
-    assert fwd == 0.0

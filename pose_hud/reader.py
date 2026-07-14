@@ -9,7 +9,8 @@ from typing import Iterator
 import numpy as np
 
 from .capture import FrameSource
-from .decode import DecodeResult, DecodeStatus, Pose, decode_pose
+from .decode import DecodeResult, DecodeStatus, decode_pose
+from .pose import Pose
 
 logger = logging.getLogger("pose_hud")
 

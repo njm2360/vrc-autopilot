@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from pose_hud.decode import Pose
+from pose_hud.pose import Pose
 from pose_hud.triangulate import (
     Sighting,
     closest_point_to_rays,

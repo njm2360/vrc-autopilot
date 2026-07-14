@@ -21,8 +21,8 @@ VRChat 画面(HUDビットグリッド)
     └─► [navigation]  NavGrid + plan_path ──► 壁を避けた経路
                           │
                           ▼
-                     [controller] AxisController(PID) ──► 指令[-1,1]
-                          │
+                     [pilot / maneuvers] goto / aim / patrol(フェーズ連結と制御ループ)
+                          │  [guidance] で誤差を計算し、[controller] AxisController(PID) が指令[-1,1] に変換
                           ▼
                      [actuator]  LookActuator / MoveActuator
                           ├─ OSC:         VRChatOSC ──► /input/* を注入
@@ -37,21 +37,26 @@ VRChat 画面(HUDビットグリッド)
 
 各モジュールはサブモジュールから直接 import して使う(`__init__.py` は再エクスポートしない)。
 
-| モジュール          | 役割                                                                 |
-| ------------------- | -------------------------------------------------------------------- |
-| `spec.py`           | グリッド/プロトコルの確定定数(モジュール定数。シェーダーと一致)      |
-| `decode.py`         | numpy ベクトル化デコード + 検証(`decode_pose`, `Pose`)               |
-| `encode.py`         | 合成エンコーダ(`render_pose`)。テスト用                              |
-| `capture.py`        | Windows/VRChat ウィンドウキャプチャ(DPI対応、`FrameSource`)          |
-| `reader.py`         | `PoseReader`(スレッドで読み続ける・統計・ジェネレータ)               |
-| `mapping.py`        | `RoomMapper`。軌跡→寸法・占有グリッド・保存/読込(ペンアップ分割対応) |
-| `mapping_render.py` | 間取り図の描画(matplotlib)                                           |
-| `triangulate.py`    | 視線レイの最小二乗交点でボタン座標を推定                             |
-| `navigation.py`     | 歩行可能グリッド生成(壁回避)+ A* 経路計画 + 照準誤差                 |
-| `control.py`        | 汎用 PID(離散・積分の溜まりすぎ防止・不感帯補償)                     |
-| `controller.py`     | `AxisController`(PID+tolゲート)/ `PatrolGains` / 制御器ビルダー      |
-| `actuator.py`       | `LookActuator`/`MoveActuator` IF + `MouseLookActuator`(DirectInput)  |
-| `osc.py`            | VRChat への OSC 送信(look/move/stop で両 actuator IF を満たす)       |
+| モジュール          | 役割                                                                                   |
+| ------------------- | -------------------------------------------------------------------------------------- |
+| `spec.py`           | グリッド/プロトコルの確定定数(モジュール定数。シェーダーと一致)                        |
+| `pose.py`           | `Pose`(6DoF ドメイン型。全層が参照する中心の型)                                        |
+| `decode.py`         | numpy ベクトル化デコード + 検証(`decode_pose`)                                         |
+| `encode.py`         | 合成エンコーダ(`render_pose`)。テスト用                                                |
+| `capture.py`        | Windows/VRChat ウィンドウキャプチャ(DPI対応、`FrameSource`)                            |
+| `reader.py`         | `PoseReader`(スレッドで読み続ける・統計・ジェネレータ)                                 |
+| `mapping.py`        | `RoomMapper`。軌跡→寸法・占有グリッド・保存/読込(ペンアップ分割対応)                   |
+| `mapping_render.py` | 間取り図の描画(matplotlib)                                                             |
+| `triangulate.py`    | 視線レイの最小二乗交点でボタン座標を推定                                               |
+| `navigation.py`     | 歩行可能グリッド生成(壁回避)+ A* 経路計画 + 経由点の直線化                             |
+| `guidance.py`       | フレーム単位の照準幾何(`wrap180` / `heading_error` / `pitch_error` / `forward_factor`) |
+| `pid.py`            | 汎用 PID(離散・積分の溜まりすぎ防止・不感帯補償)                                       |
+| `controller.py`     | `AxisController`(PID+tolゲート)/ `PatrolGains` / 制御器ビルダー                        |
+| `actuator.py`       | `LookActuator`/`MoveActuator` IF + `MouseLookActuator`(DirectInput)                    |
+| `osc.py`            | VRChat への OSC 送信(look/move/stop で両 actuator IF を満たす)                         |
+| `telemetry.py`      | `Recorder` IF + `AxisMetrics`/`AxisAccumulator`(応答指標の累積)                        |
+| `maneuvers.py`      | 制御ループの建物ブロック(`follow_path` / `aim_at` / `turn_to`。ヘッドレス可)           |
+| `pilot.py`          | `Pilot` ファサード(経路計画+ループ連結。実機 I/O は `connect()` に集約)                |
 
 ## CLI(`pose_hud/cli/`, console scripts)
 
