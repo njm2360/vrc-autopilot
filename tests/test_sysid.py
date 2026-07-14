@@ -18,6 +18,8 @@ from app.sysid.simplant import SimClock, SimulatedVRChat
 from app.sysid.identify import (
     AxisModel,
     PlantModel,
+    ProbeRun,
+    build_plant,
     extract_dts,
     identify_axis,
     load_run,
@@ -25,6 +27,7 @@ from app.sysid.identify import (
     move_schedule,
     run_axis_probe,
     run_move_probe,
+    run_pitch_probe,
     save_run,
 )
 from app.control.telemetry import ListRecorder
@@ -137,6 +140,99 @@ def test_move_probe_stays_within_band():
     assert model.rate(1.0) == pytest.approx(2.0, rel=0.1)
     assert model.rate(0.5) == pytest.approx(1.0, rel=0.1)
     assert model.rate(-0.1) == pytest.approx(-0.2, rel=0.1)
+
+
+def make_fast_pitch_plant(rate: float = 120.0) -> PlantModel:
+    plant = make_plant()
+    plant.axes["pitch"] = AxisModel(
+        "pitch", "deg/s", [(-1.0, -rate), (0.0, 0.0), (1.0, rate)], DEAD
+    )
+    return plant
+
+
+def test_pitch_probe_respects_guard_and_recovers_curve():
+    """角度ガード付き pitch プローブ: 速い軸でもクランプに張り付かず特性を復元する。"""
+    plant = make_fast_pitch_plant(120.0)
+    sim = SimulatedVRChat(plant, pitch=10.0)  # ホームが中央からずれていてもよい
+    clk = SimClock(sim)
+    span = 30.0
+    run = run_pitch_probe(
+        sim,
+        lambda v: sim.look(pitch=v),
+        [0.25, 0.5, 1.0],
+        hold=1.5,
+        settle=0.4,
+        span=span,
+        monotonic=clk.monotonic,
+        sleep=clk.sleep,
+    )
+    # 行き過ぎ上限 ≒ 最高速度 × (むだ時間 + 2フレーム)。クランプ(±89°)には遠い
+    margin = 120.0 * (DEAD + 2 * DT)
+    assert max(abs(s.pitch) for s in run.samples) <= 10.0 + span + 2 * margin
+    assert max(abs(s.pitch) for s in run.samples) < 88.0
+    model = identify_axis(run)
+    assert model.rate(1.0) == pytest.approx(120.0, rel=0.1)
+    assert model.rate(-1.0) == pytest.approx(-120.0, rel=0.1)
+    assert model.rate(0.5) == pytest.approx(60.0, rel=0.1)
+    assert 0.05 <= model.deadtime_s <= 0.22
+
+
+def test_identify_excludes_pitch_clamp_saturation():
+    """時間ベース加振で ±90° に張り付いた記録でも、張り付き前のランプから傾きを取れる。"""
+    plant = make_fast_pitch_plant(120.0)  # 1.5s 保持で確実にクランプへ到達する
+    sim = SimulatedVRChat(plant)
+    run = probe(sim, "pitch", look_schedule([1.0], hold=1.5, settle=0.4))
+    assert max(abs(s.pitch) for s in run.samples) >= 88.0  # 実際に張り付いている
+    model = identify_axis(run)
+    assert model.rate(1.0) == pytest.approx(120.0, rel=0.1)
+
+
+class _StallingReader:
+    """指定時刻以降、最後のポーズを返し続ける(HUD フリーズの模擬)。"""
+
+    def __init__(self, src, clk: SimClock, stall_at: float):
+        self.src, self.clk, self.stall_at = src, clk, stall_at
+        self._frozen = None
+
+    def get_latest(self):
+        if self.clk.monotonic() >= self.stall_at:
+            return self._frozen
+        self._frozen = self.src.get_latest()
+        return self._frozen
+
+
+def test_guarded_probe_cuts_command_on_hud_stall():
+    """HUD 途絶中はガードを評価できないので、blind_cap で指令を切って暴走距離を抑える。"""
+    plant = make_plant()  # 最高 2 m/s
+    sim = SimulatedVRChat(plant)
+    clk = SimClock(sim)
+    reader = _StallingReader(sim, clk, stall_at=0.9)  # 最初の +v 区間の途中で途絶
+    try:
+        run_move_probe(
+            reader,
+            lambda v: sim.move(forward=v),
+            [1.0],
+            axis="forward",
+            max_travel=5.0,  # 位置ガードは発火させない(途絶時の挙動だけ見る)
+            hold=2.0,
+            monotonic=clk.monotonic,
+            sleep=clk.sleep,
+        )
+    except RuntimeError:
+        pass  # 途絶が wait_cap まで続けば HUD lost で落ちるのも正しい挙動
+    # 指令はカットされ、hold いっぱい(2 m/s × ~1.9s ≈ 3.8m)までは走らない
+    pose = sim.get_latest()
+    assert abs(pose.position[2]) < 2.0
+
+
+def test_build_plant_skips_failed_axis():
+    """1軸の同定失敗(サンプル不足)が他軸を巻き込まない。"""
+    plant = make_plant()
+    sim = SimulatedVRChat(plant)
+    good = probe(sim, "yaw", look_schedule([0.8], hold=1.0, settle=0.4))
+    bad = ProbeRun(axis="pitch", samples=[], seg_starts=[])
+    built = build_plant([good, bad])
+    assert "yaw" in built.axes and "pitch" not in built.axes
 
 
 def test_all_control_loops_run_against_sim():

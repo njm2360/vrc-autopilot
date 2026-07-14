@@ -3,21 +3,22 @@
 使い方(実機。開けた場所に立って実行):
     probe-axes                        # 4軸すべて測定 → logs/probe_*/plant.json
     probe-axes --axes yaw,strafe      # 軸を絞る
+    probe-axes --axes pitch --out logs/probe_XXXX   # 1軸だけ測り直す
+    probe-axes --from-log logs/probe_XXXX           # 生ログから同定だけやり直す
 
-出力ディレクトリには生ログ CSV(probe_*.csv / segments_*.csv)、同定結果
-plant.json、軸ごとの静特性プロット PNG が入る。生ログさえあれば
-    probe-axes --from-log logs/probe_XXXX
-で(実機なしで)同定だけやり直せる。plant.json は sim-face が読む。
+出力ディレクトリには生ログ CSV(probe_*.csv / segments_*.csv)、plant.json、
+軸ごとの静特性プロット PNG が入る。plant.json は出力ディレクトリに生ログがある
+軸すべてから組むので、1軸だけ取り直しても他の軸は残る。Ctrl-C で中断しても
+完了済みの軸だけで同定する。plant.json は sim-face が読む。
 
 必要スペース:
-- yaw / pitch はその場で回るだけ(スペース不要)。
+- yaw / pitch はその場で回るだけ。pitch は視線から ±pitch-span(既定 45°)の
+  角度ガード内で振る。
 - forward / strafe は開始位置から軸方向 ±max-travel(既定 3m)の範囲内で往復する
   (位置ガードで切り返す。行き過ぎマージン ≒ 最高速度×むだ時間)。狭い場所では
   --max-travel 0.4 程度まで詰められる(速い指令レベルの精度は粗くなる)。
 
-注意:
-- pitch は ±90° で頭打ちになるので保持時間を短くしてある(--pitch-hold)。
-- 測定値はワールド・アバター・fps に依存する。環境が変わったら測り直す。
+測定値はワールド・アバター・fps に依存するので、環境が変わったら測り直す。
 """
 
 import argparse
@@ -36,6 +37,7 @@ from app.sysid.identify import (
     look_schedule,
     run_axis_probe,
     run_move_probe,
+    run_pitch_probe,
     save_run,
     schedule_duration,
 )
@@ -52,9 +54,8 @@ def _parse_levels(spec: str) -> list[float]:
     return levels
 
 
-def _look_schedule(axis: str, args) -> list:
-    hold = args.hold if axis == "yaw" else args.pitch_hold
-    return look_schedule(_parse_levels(args.levels), hold, args.settle)
+def _yaw_schedule(args) -> list:
+    return look_schedule(_parse_levels(args.levels), args.hold, args.settle)
 
 
 def _move_duration_cap(args) -> float:
@@ -64,6 +65,23 @@ def _move_duration_cap(args) -> float:
     """
     per_level = args.move_hold * (1 + 4 * args.passes + 2) + args.settle
     return len(_parse_levels(args.move_levels)) * per_level
+
+
+def _pitch_duration_cap(args) -> float:
+    """pitch の所要秒の上限(角度ガードで早く切れればこれより短い)。
+
+    1レベル = +振り(hold) + settle + −振り(hold) + settle + 戻り(2hold + settle)。
+    """
+    per_level = 2 * (args.pitch_hold + args.settle) + 2 * args.pitch_hold + args.settle
+    return len(_parse_levels(args.levels)) * per_level + args.settle
+
+
+def _axis_duration_cap(axis: str, args) -> float:
+    if axis == "yaw":
+        return schedule_duration(_yaw_schedule(args))
+    if axis == "pitch":
+        return _pitch_duration_cap(args)
+    return _move_duration_cap(args)
 
 
 def _plot_models(plant: PlantModel, out_dir: Path) -> None:
@@ -94,6 +112,17 @@ def _plot_models(plant: PlantModel, out_dir: Path) -> None:
 def _identify_and_save(
     runs: list[ProbeRun], out_dir: Path, *, source: str, plot: bool
 ) -> None:
+    """runs に無い軸は out_dir の既存生ログから拾って plant.json を組む。"""
+    by_axis = {r.axis: r for r in runs}
+    for axis in AXES:
+        if axis in by_axis:
+            continue
+        try:
+            by_axis[axis] = load_run(out_dir, axis)
+            print(f"  [reuse] {axis}: 既存の生ログ")
+        except FileNotFoundError:
+            pass
+    runs = [by_axis[a] for a in AXES if a in by_axis]
     plant = build_plant(
         runs,
         meta={
@@ -130,49 +159,56 @@ def _run_live(axes: list[str], out_dir: Path, args) -> list[ProbeRun]:
             if time.monotonic() > deadline:
                 raise SystemExit("HUD が読めません(VRChat 起動中? HUD_Enable?)")
             time.sleep(0.1)
-        total = sum(
-            (
-                schedule_duration(_look_schedule(a, args))
-                if a in ("yaw", "pitch")
-                else _move_duration_cap(args)
-            )
-            for a in axes
-        )
+        total = sum(_axis_duration_cap(a, args) for a in axes)
         print(f"axes: {', '.join(axes)}  合計 ~{total:.0f}s 以内")
         if any(a in ("forward", "strafe") for a in axes):
             print(
                 f"[注意] 移動軸は前後/左右に ±{args.max_travel:.1f}m ほど動きます"
                 "(向いている方向基準)。"
             )
+        if "pitch" in axes:
+            print(f"[注意] pitch は現在の視線から ±{args.pitch_span:.0f}° 振ります。")
         print(f"{args.start_delay:.0f} 秒後に開始...")
         time.sleep(args.start_delay)
         for axis in axes:
             send = lambda v, name=AXIS_INPUT[axis]: osc.axis(name, v)
-            if axis in ("yaw", "pitch"):
-                segments = _look_schedule(axis, args)
-                print(
-                    f"probe {axis} (/input/{AXIS_INPUT[axis]}): "
-                    f"{len(segments)} segments, ~{schedule_duration(segments):.0f}s"
-                )
-                run = run_axis_probe(reader, send, segments, axis=axis)
-            else:
-                print(
-                    f"probe {axis} (/input/{AXIS_INPUT[axis]}): "
-                    f"band ±{args.max_travel:.1f}m, {args.passes} passes/level"
-                )
-                run = run_move_probe(
-                    reader,
-                    send,
-                    _parse_levels(args.move_levels),
-                    axis=axis,
-                    max_travel=args.max_travel,
-                    hold=args.move_hold,
-                    settle=args.settle,
-                    passes=args.passes,
-                )
+            t_start = time.monotonic()
+            print(
+                f"probe {axis} (/input/{AXIS_INPUT[axis]}): "
+                f"~{_axis_duration_cap(axis, args):.0f}s 以内"
+            )
+            try:
+                if axis == "yaw":
+                    run = run_axis_probe(reader, send, _yaw_schedule(args), axis=axis)
+                elif axis == "pitch":
+                    run = run_pitch_probe(
+                        reader,
+                        send,
+                        _parse_levels(args.levels),
+                        hold=args.pitch_hold,
+                        settle=args.settle,
+                        span=args.pitch_span,
+                    )
+                else:
+                    run = run_move_probe(
+                        reader,
+                        send,
+                        _parse_levels(args.move_levels),
+                        axis=axis,
+                        max_travel=args.max_travel,
+                        hold=args.move_hold,
+                        settle=args.settle,
+                        passes=args.passes,
+                    )
+            except KeyboardInterrupt:
+                print(f"\n[中断] {axis} の記録は捨て、完了済みの軸だけで同定します")
+                break
             osc.stop()
             paths = save_run(run, out_dir)
-            print(f"  {len(run.samples)} samples -> {paths[0]}")
+            print(
+                f"  {axis} 完了 ({time.monotonic() - t_start:.0f}s): "
+                f"{len(run.samples)} samples -> {paths[0]}"
+            )
             runs.append(run)
     finally:
         osc.close()
@@ -207,8 +243,14 @@ def main() -> None:
     parser.add_argument(
         "--pitch-hold",
         type=float,
-        default=0.5,
-        help="pitch の保持秒(±90°の頭打ちに当たらない長さ)",
+        default=0.8,
+        help="pitch の片道上限秒(角度ガードが先に効けば短く切れる)",
+    )
+    parser.add_argument(
+        "--pitch-span",
+        type=float,
+        default=45.0,
+        help="pitch を開始視線から振る角度幅[°](±90°クランプ回避のガード)",
     )
     parser.add_argument(
         "--move-hold",
@@ -260,6 +302,8 @@ def main() -> None:
     )
     out_dir.mkdir(parents=True, exist_ok=True)
     runs = _run_live(axes, out_dir, args)
+    if not runs and not any(out_dir.glob("probe_*.csv")):
+        raise SystemExit("完了した軸がないため plant.json は作りません")
     _identify_and_save(runs, out_dir, source="probe", plot=not args.no_plot)
 
 
