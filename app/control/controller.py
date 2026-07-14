@@ -72,6 +72,8 @@ class PatrolGains:
     # ---- 追従パラメータ ----
     speed: float = 0.7  # 巡航前進速度の上限(0..1)
     arrive: float = 0.35  # ウェイポイント到達半径[m]
+    # ボタン正面で止まる距離[m]。Use到達距離内に収めること。
+    standoff: float = 1.0
     face_tol: float = 1.0  # 正対とみなす角度[deg]
     settle: int = 3  # 収束に必要な、連続で正対を保ったフレーム数
     nav_timeout: float = 60.0  # 移動の打切り秒

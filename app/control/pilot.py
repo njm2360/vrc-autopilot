@@ -5,6 +5,7 @@ visit / patrol のフェーズ連結を提供する。実機 I/O(capture / osc /
 connect() だけが知っており、コンストラクタ注入ならヘッドレスで動く。
 """
 
+import math
 import time
 from typing import Callable, Iterable
 
@@ -168,10 +169,27 @@ class Pilot:
             name=name,
         )
 
+    def _standoff_goal(
+        self,
+        xyz: tuple[float, float, float],
+        standoff: float,
+        face_yaw_deg: float,
+    ) -> tuple[float, float]:
+        if standoff <= 0.0:
+            return (xyz[0], xyz[2])
+        y = math.radians(face_yaw_deg)
+        return (xyz[0] + math.sin(y) * standoff, xyz[2] + math.cos(y) * standoff)
+
     def visit(
-        self, xyz: tuple[float, float, float], *, name: str = "button"
+        self,
+        xyz: tuple[float, float, float],
+        face_yaw_deg: float,
+        *,
+        name: str = "button",
+        standoff: float | None = None,
     ) -> tuple[NavResult, AimResult | None]:
-        nav = self.goto((xyz[0], xyz[2]), name=name)
+        d = self.gains.standoff if standoff is None else standoff
+        nav = self.goto(self._standoff_goal(xyz, d, face_yaw_deg), name=name)
         if not nav.reached:
             return nav, None
         aim = self.aim(xyz, name=name)
@@ -182,11 +200,12 @@ class Pilot:
         return nav, aim
 
     def patrol(
-        self, targets: Iterable[tuple[str, tuple[float, float, float]]]
+        self,
+        targets: Iterable[tuple[str, tuple[float, float, float], float]],
     ) -> list[tuple[str, NavResult, AimResult | None]]:
         results = []
-        for name, xyz in targets:
-            nav, aim = self.visit(xyz, name=name)
+        for name, xyz, face_yaw in targets:
+            nav, aim = self.visit(xyz, face_yaw, name=name)
             results.append((name, nav, aim))
         return results
 

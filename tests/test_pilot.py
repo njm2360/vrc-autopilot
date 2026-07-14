@@ -255,6 +255,25 @@ def test_pilot_goto_unreachable():
     assert not res.reached and res.reason == "unreachable"
 
 
+def test_pilot_standoff_goal_is_in_front_of_button():
+    # ボタン(0.5,*,0.5)が +X 向き(face_yaw=90°)→ 法線上の正面点 (0.7, 0.5)。
+    # 現在地には依存しない(壁裏回り込み防止)
+    pilot = Pilot(
+        _grid(np.ones((10, 10), bool)), FakeReader([]), RecActuator(), RecActuator()
+    )
+    assert pilot._standoff_goal((0.5, 1.0, 0.5), 0.2, 90.0) == pytest.approx((0.7, 0.5))
+    assert pilot._standoff_goal((0.5, 1.0, 0.5), 0.3, 180.0) == pytest.approx(
+        (0.5, 0.2)
+    )  # -Z 向きの正面
+
+
+def test_pilot_standoff_zero_targets_button_xz():
+    pilot = Pilot(
+        _grid(np.ones((10, 10), bool)), FakeReader([]), RecActuator(), RecActuator()
+    )
+    assert pilot._standoff_goal((0.9, 1.0, 0.5), 0.0, 90.0) == (0.9, 0.5)
+
+
 def test_pilot_is_usable_without_hardware_imports():
     # capture/osc を import せず、注入だけで Pilot が動く
     pilot = Pilot(

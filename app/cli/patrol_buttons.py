@@ -1,5 +1,6 @@
 import argparse
 import dataclasses
+import math
 from datetime import datetime
 from pathlib import Path
 
@@ -9,28 +10,39 @@ from app.mapping.mapper import RoomMapper
 from app.spatial.navigation import NavGrid, plan_path
 from app.control.pilot import Pilot
 
-Target = tuple[str, tuple[float, float], float]
+# (name, xz, y, face_yaw_deg) face_yaw_deg=ボタンの向き(壁の外向き法線, +Z基準)
+Target = tuple[str, tuple[float, float], float, float]
 
 
 def _parse_targets(args) -> list[Target]:
     targets: list[Target] = []
     for i, spec in enumerate(args.target or []):
         parts = [float(v) for v in spec.split(",")]
-        if len(parts) != 3:
-            raise SystemExit(f"--target は 'x,y,z' 形式で: {spec!r}")
-        targets.append((f"t{i + 1}", (parts[0], parts[2]), parts[1]))
+        if len(parts) != 4:
+            raise SystemExit(f"--target は 'x,y,z,face_yaw' 形式で: {spec!r}")
+        targets.append((f"t{i + 1}", (parts[0], parts[2]), parts[1], parts[3]))
     return targets
+
+
+def _standoff_xz(
+    tgt: tuple[float, float], face_yaw: float, standoff: float
+) -> tuple[float, float]:
+    if standoff <= 0.0:
+        return tgt
+    y = math.radians(face_yaw)
+    return (tgt[0] + math.sin(y) * standoff, tgt[1] + math.cos(y) * standoff)
 
 
 def _plan_tour(
     grid: NavGrid,
     start: tuple[float, float],
     targets: list[Target],
+    standoff: float = 0.0,
 ):
     cur = start
     legs = []
-    for name, tgt, _y in targets:
-        path = plan_path(grid, cur, tgt)
+    for name, tgt, _y, face_yaw in targets:
+        path = plan_path(grid, cur, _standoff_xz(tgt, face_yaw, standoff))
         legs.append((name, tgt, path))
         if path is not None:
             cur = path.reached_goal_cell
@@ -92,9 +104,9 @@ def _run_live(grid, targets, args, gains: PatrolGains) -> None:
     print(f"look={args.look}  waiting for HUD...")
     pilot.wait_for_hud()
     try:
-        for name, tgt_xz, tgt_y in targets:
-            print(f"-> {name} {tgt_xz} y={tgt_y}")
-            pilot.visit((tgt_xz[0], tgt_y, tgt_xz[1]), name=name)
+        for name, tgt_xz, tgt_y, face_yaw in targets:
+            print(f"-> {name} {tgt_xz} y={tgt_y} face_yaw={face_yaw:g}")
+            pilot.visit((tgt_xz[0], tgt_y, tgt_xz[1]), face_yaw, name=name)
         print("patrol done.")
     except KeyboardInterrupt:
         print("\ninterrupted.")
@@ -110,6 +122,12 @@ def _add_gain_args(parser) -> None:
     )
     parser.add_argument(
         "--arrive", type=float, default=d.arrive, help="ウェイポイント到達半径[m]"
+    )
+    parser.add_argument(
+        "--standoff",
+        type=float,
+        default=d.standoff,
+        help="ボタン手前で止まる距離[m](0=直下まで詰める)",
     )
     parser.add_argument(
         "--face-tol", type=float, default=d.face_tol, help="正対とみなす角度[deg]"
@@ -167,7 +185,11 @@ def main() -> None:
         "--map", required=True, help="部屋マップ .npz(map_room.py 出力)"
     )
     parser.add_argument(
-        "--target", action="append", metavar="X,Y,Z", help="ボタン座標(複数可)"
+        "--target",
+        action="append",
+        metavar="X,Y,Z,FACE_YAW",
+        help="ボタン座標と向き(複数可)。FACE_YAW=壁の外向き法線[deg](+Z基準)。"
+        "その正面 standoff[m] に立つ",
     )
     parser.add_argument("--cell", type=float, default=0.1, help="グリッド解像度[m]")
     parser.add_argument(
@@ -225,7 +247,7 @@ def main() -> None:
     p0 = mapper.points[0]
     start = (float(p0[0]), float(p0[1]))
 
-    legs = _plan_tour(grid, start, targets)
+    legs = _plan_tour(grid, start, targets, standoff=args.standoff)
     print(f"\nplan from {tuple(round(v, 2) for v in start)}:")
     for name, tgt, path in legs:
         if path is None:

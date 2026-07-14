@@ -77,13 +77,14 @@ uv run find-button      # SPACE=キャプチャ  r=リセット(次のボタン)
 
 ```bash
 # 計画のみ(VRChat不要)。--dry-run でマップと同じフォルダに plan.png を自動保存
-uv run patrol-buttons --map maps/<日時>/room.npz --target 3.0,1.2,5.0 --target -1.0,1.0,2.0 --dry-run
+uv run patrol-buttons --map maps/<日時>/room.npz --target 3.0,1.2,5.0,180 --target -1.0,1.0,2.0,90 --dry-run
 
 # 実際に OSC で巡回(VRChat 起動 + HUD_Enable が必要)
-uv run patrol-buttons --map maps/<日時>/room.npz --target 3.0,1.2,5.0 --target -1.0,1.0,2.0
+uv run patrol-buttons --map maps/<日時>/room.npz --target 3.0,1.2,5.0,180 --target -1.0,1.0,2.0,90
 ```
 
-- `--target X,Y,Z` … ボタン座標(複数可, **高さ Y は必須**)。`--buttons JSON` でまとめて指定も可
+- `--target X,Y,Z,FACE_YAW` … ボタン座標と向き(複数可, **高さ Y・向き FACE_YAW は必須**)。
+  FACE_YAW はボタンの向き=壁の外向き法線[deg](+Z基準)。その正面 `--standoff`[m] に立って照準する
 - `--radius 0.25` … アバター半径=壁クリアランス[m] / `--cell 0.1` … グリッド解像度[m]
 - `--gap-close 0.3` … 軌跡ループの隙間を塞ぐ距離[m](歩き残しで外に漏れる時に増やす)
 - 追従: `--speed`(巡航速度)、`--arrive`(WP到達半径)、`--face-tol`(正対とみなす角度[deg])、`--settle`
