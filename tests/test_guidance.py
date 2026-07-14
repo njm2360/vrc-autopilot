@@ -30,7 +30,7 @@ def test_heading_error_right_is_positive():
 
 
 def test_heading_error_shortest_way():
-    # 現在 yaw=170、目標方向が -170(=190)→ 最短は +20度側ではなく…
+    # 現在 yaw=170、目標方向 -170(=190)。最短回転は +20度(逆回りの -340度ではない)
     err, _ = heading_error((0.0, 0.0), 170.0, (math.sin(math.radians(-170)), math.cos(math.radians(-170))))
     assert abs(err) == pytest.approx(20.0, abs=1e-6)
 
@@ -62,7 +62,7 @@ def test_aim_angle_zero_when_forward_hits_target():
 
 
 def test_aim_angle_from_pose():
-    # Pose.forward が真上90度ずれ
+    # forward が目標方向から 90度ずれている場合
     eye = (0.0, 1.0, 0.0)
     target = (0.0, 1.0, 5.0)             # 真正面(+Z)
     forward = (1.0, 0.0, 0.0)            # +X を向いている → 90度ずれ
