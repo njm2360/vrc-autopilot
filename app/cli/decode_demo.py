@@ -6,21 +6,18 @@
 """
 
 import argparse
-import logging
 import time
 
+from app.cli._logging import setup_logging
 from app.perception.capture import WindowNotFoundError, WindowsVRChatCapture
 from app.perception.reader import PoseReader
 
 
 def main() -> None:
+    setup_logging()
     parser = argparse.ArgumentParser(description="VRChat 6DoF HUD decoder demo")
     parser.add_argument("--stats", action="store_true", help="統計を定期表示")
     args = parser.parse_args()
-
-    logging.basicConfig(
-        level=logging.INFO, format="%(levelname)s %(name)s: %(message)s"
-    )
 
     try:
         source = WindowsVRChatCapture()

@@ -4,6 +4,7 @@ import math
 from datetime import datetime
 from pathlib import Path
 
+from app.cli._logging import setup_logging
 from app.cli._ctl_log import ControlLog
 from app.control.controller import PatrolGains
 from app.mapping.mapper import RoomMapper
@@ -177,7 +178,7 @@ def _add_gain_args(parser) -> None:
         "--pitch-deadzone",
         type=float,
         default=d.pitch_deadzone,
-        help="正対 pitch の不感帯補償(既定0=無効。上下がなかなか合わないなら 0.5 程度)",
+        help="正対 pitch の不感帯補償(実測オンセット0.10。0で無効)",
     )
     parser.add_argument("--fwd-kp", type=float, default=d.fwd_kp)
     parser.add_argument("--fwd-kd", type=float, default=d.fwd_kd)
@@ -216,11 +217,12 @@ def _add_gain_args(parser) -> None:
         "--strafe-deadzone",
         type=float,
         default=d.strafe_deadzone,
-        help="移動軸の不感帯補償(既定0=無効)",
+        help="align 横移動の不感帯補償(実測オンセット0.10。0だと tol 手前で失速する)",
     )
 
 
 def main() -> None:
+    setup_logging()
     parser = argparse.ArgumentParser(
         description="Patrol buttons on a saved room map, avoiding walls"
     )

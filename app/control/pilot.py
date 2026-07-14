@@ -1,3 +1,4 @@
+import logging
 import math
 import time
 from typing import Iterable
@@ -22,6 +23,8 @@ from .maneuvers import (
 )
 from ..spatial.navigation import NavGrid, plan_path
 from .telemetry import NullRecorder, Recorder
+
+logger = logging.getLogger(__name__)
 
 
 class Pilot:
@@ -91,21 +94,23 @@ class Pilot:
             if self.reader.get_latest() is not None:
                 return True
             time.sleep(0.1)
+        logger.warning("HUD が %.0f 秒読めません(VRChat 起動中? HUD_Enable?)", timeout)
         return False
 
     def goto(self, xz: tuple[float, float], *, name: str = "goto") -> NavResult:
         pose = self.reader.get_latest()
         if pose is None:
-            print(f"  [{name}] 現在位置が取れません(HUD?)")
+            logger.warning("[%s] 現在位置が取れません(HUD?)", name)
             return NavResult(False, False, "no_pose", None, 0.0, 0)
         start = (pose.position[0], pose.position[2])
         path = plan_path(self.grid, start, xz)
         if path is None:
-            print(f"  [{name}] 経路なし(到達不能)")
+            logger.warning("[%s] 経路なし(到達不能)", name)
             return NavResult(False, False, "unreachable", None, 0.0, 0)
-        print(
-            f"  [{name}] 経路 {len(path.waypoints)}点 / {path.length:.1f}m"
-            + ("(壁面→最寄り床へ)" if path.goal_blocked else "")
+        logger.info(
+            "[%s] 経路 %d点 / %.1fm%s",
+            name, len(path.waypoints), path.length,
+            "(壁面→最寄り床へ)" if path.goal_blocked else "",
         )
         res = follow_path(
             self.reader,
@@ -128,16 +133,17 @@ class Pilot:
         """
         pose = self.reader.get_latest()
         if pose is None:
-            print(f"  [{name}] 現在位置が取れません(HUD?)")
+            logger.warning("[%s] 現在位置が取れません(HUD?)", name)
             return NavResult(False, False, "no_pose", None, 0.0, 0)
         start = (pose.position[0], pose.position[2])
         path = plan_path(self.grid, start, xz)
         if path is None:
-            print(f"  [{name}] 経路なし(到達不能)")
+            logger.warning("[%s] 経路なし(到達不能)", name)
             return NavResult(False, False, "unreachable", None, 0.0, 0)
-        print(
-            f"  [{name}] 経路 {len(path.waypoints)}点 / {path.length:.1f}m (視点固定)"
-            + ("(壁面→最寄り床へ)" if path.goal_blocked else "")
+        logger.info(
+            "[%s] 経路 %d点 / %.1fm (視点固定)%s",
+            name, len(path.waypoints), path.length,
+            "(壁面→最寄り床へ)" if path.goal_blocked else "",
         )
         res = follow_path_hold_view(
             self.reader,
@@ -230,15 +236,15 @@ class Pilot:
         if not nav.reached:
             return nav, None
         aim = self.aim(xyz, name=name)
-        print(
-            f"  [{name}] arrived. aim yaw_err={aim.yaw_err:+.2f}° "
-            f"pitch_err={aim.pitch_err:+.2f}° ({aim.reason})"
+        logger.info(
+            "[%s] arrived. aim yaw_err=%+.2f° pitch_err=%+.2f° (%s)",
+            name, aim.yaw_err, aim.pitch_err, aim.reason,
         )
         if self.gains.align_tol > 0.0:
             aim = self.align(xyz, name=name)
-            print(
-                f"  [{name}] align yaw_err={aim.yaw_err:+.2f}° "
-                f"pitch_err={aim.pitch_err:+.2f}° ({aim.reason})"
+            logger.info(
+                "[%s] align yaw_err=%+.2f° pitch_err=%+.2f° (%s)",
+                name, aim.yaw_err, aim.pitch_err, aim.reason,
             )
         return nav, aim
 

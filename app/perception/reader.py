@@ -12,7 +12,7 @@ from ..core.pose import Pose
 from .capture import FrameSource
 from .decode import DecodeResult, DecodeStatus, decode_pose
 
-logger = logging.getLogger("app")
+logger = logging.getLogger(__name__)
 
 _STATS_WINDOW = 120  # fps 推定に使う直近サンプル数
 _WARN_AFTER = 120  # 連続失敗がこれを超えたら一度だけ警告する
@@ -172,7 +172,9 @@ class PoseReader:
                 continue
             try:
                 self.process_frame(frame)
-            except Exception as exc:  # noqa: BLE001 - フレーム不正(リサイズ等)は回復対象
+            except (
+                Exception
+            ) as exc:  # noqa: BLE001 - フレーム不正(リサイズ等)は回復対象
                 self._note_failure(f"frame processing failed: {exc}")
 
     def _note_failure(self, detail: str) -> None:

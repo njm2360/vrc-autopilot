@@ -1,3 +1,4 @@
+from app.cli._logging import setup_logging
 from app.perception.capture import WindowsVRChatCapture
 from app.cli._keys import key_events
 from app.perception.reader import PoseReader
@@ -5,6 +6,7 @@ from app.spatial.triangulate import Sighting, triangulate
 
 
 def main() -> None:
+    setup_logging()
     reader = PoseReader(source=WindowsVRChatCapture())
     reader.start()
     sightings: list[Sighting] = []
@@ -25,8 +27,10 @@ def main() -> None:
                 res = triangulate(sightings)
                 x, y, z = res.point
                 warn = "" if res.well_conditioned else "  [warn] レイがほぼ平行"
-                print(f"  ({x:+.3f}, {y:+.3f}, {z:+.3f}) m  "
-                      f"residual={res.residual_rms * 100:.1f}cm  n={res.n}{warn}")
+                print(
+                    f"  ({x:+.3f}, {y:+.3f}, {z:+.3f}) m  "
+                    f"residual={res.residual_rms * 100:.1f}cm  n={res.n}{warn}"
+                )
             elif ch in ("r", "R"):
                 sightings.clear()
                 print("-- reset --")

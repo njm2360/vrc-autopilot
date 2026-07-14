@@ -25,6 +25,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+from app.cli._logging import setup_logging
 from app.sysid.identify import (
     AXES,
     AXIS_INPUT,
@@ -180,6 +181,7 @@ def _run_live(axes: list[str], out_dir: Path, args) -> list[ProbeRun]:
 
 
 def main() -> None:
+    setup_logging()
     parser = argparse.ArgumentParser(
         description="VRChat 入力軸の応答特性を測定し PlantModel(plant.json)を作る"
     )

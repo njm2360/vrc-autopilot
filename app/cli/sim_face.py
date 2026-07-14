@@ -14,6 +14,7 @@ import argparse
 import dataclasses
 from pathlib import Path
 
+from app.cli._logging import setup_logging
 from app.cli._ctl_log import ControlLog
 from app.cli.patrol_buttons import _add_gain_args
 from app.control.controller import PatrolGains, face_controllers
@@ -24,6 +25,7 @@ from app.control.telemetry import ListRecorder
 
 
 def main() -> None:
+    setup_logging()
     parser = argparse.ArgumentParser(
         description="plant.json 上で正対(turn_to)ループを回しゲインを検証する"
     )

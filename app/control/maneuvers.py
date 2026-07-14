@@ -6,6 +6,7 @@
 最終照準。経路計画やフェーズの連結は pilot.Pilot が担う。
 """
 
+import logging
 import math
 import time
 from dataclasses import dataclass
@@ -23,6 +24,8 @@ from .guidance import forward_factor, heading_error, pitch_error, wrap180
 from ..spatial.navigation import Path
 from ..core.pose import Pose
 from .telemetry import AxisAccumulator, AxisMetrics, NullRecorder, Recorder
+
+logger = logging.getLogger(__name__)
 
 
 class PoseSource(Protocol):
@@ -114,7 +117,7 @@ def follow_path(
             pose, dt, now = _next_frame(reader, last_t, last_time, clock=clock)
             if pose is None:
                 reason = "hud_lost"
-                print(f"  [{name}] HUD lost, abort nav")
+                logger.warning("[%s] HUD lost, abort nav", name)
                 break
             last_t, last_time = pose.time_ms, now
             frames += 1
@@ -163,18 +166,28 @@ def follow_path(
                 yaw_acc.update(err, turn, now - t0, dt, gains.face_tol)
             if now - t0 > gains.nav_timeout:
                 reason = "timeout"
-                print(f"  [{name}] nav timeout")
+                logger.warning("[%s] nav timeout", name)
                 break
     finally:
         # 例外(Ctrl+C・OSC/マウスエラー等)で抜けてもアバターを確実に止める
         look.stop()
         move.stop()
+    elapsed = clock.monotonic() - t0
+    logger.debug(
+        "[%s] nav end: %s wp=%d/%d frames=%d %.2fs",
+        name,
+        reason,
+        idx,
+        len(wps),
+        frames,
+        elapsed,
+    )
     return NavResult(
         reached=True,
         arrived=(reason == "arrived"),
         reason=reason,
         path=None,
-        elapsed=clock.monotonic() - t0,
+        elapsed=elapsed,
         frames=frames,
         yaw=yaw_acc.snapshot() if (track and frames) else None,
     )
@@ -210,7 +223,7 @@ def follow_path_hold_view(
             pose, dt, now = _next_frame(reader, last_t, last_time, clock=clock)
             if pose is None:
                 reason = "hud_lost"
-                print(f"  [{name}] HUD lost, abort move")
+                logger.warning("[%s] HUD lost, abort move", name)
                 break
             last_t, last_time = pose.time_ms, now
             frames += 1
@@ -262,18 +275,28 @@ def follow_path_hold_view(
                 )
             if now - t0 > gains.nav_timeout:
                 reason = "timeout"
-                print(f"  [{name}] move timeout")
+                logger.warning("[%s] move timeout", name)
                 break
     finally:
         # 例外で抜けても移動・視点を確実に止める
         move.stop()
         look.stop()
+    elapsed = clock.monotonic() - t0
+    logger.debug(
+        "[%s] move end: %s wp=%d/%d frames=%d %.2fs",
+        name,
+        reason,
+        idx,
+        len(wps),
+        frames,
+        elapsed,
+    )
     return NavResult(
         reached=True,
         arrived=(reason == "arrived"),
         reason=reason,
         path=None,
-        elapsed=clock.monotonic() - t0,
+        elapsed=elapsed,
         frames=frames,
     )
 
@@ -365,11 +388,22 @@ def _face_loop(
     finally:
         # 例外で抜けても視点の回転を確実に止める
         look.stop()
+    elapsed = clock.monotonic() - t0
+    logger.debug(
+        "[%s] %s end: %s yaw_err=%+.2f pitch_err=%+.2f frames=%d %.2fs",
+        name,
+        phase,
+        reason,
+        yaw_err,
+        pitch_err,
+        frames,
+        elapsed,
+    )
     return AimResult(
         converged=converged,
         yaw_err=yaw_err,
         pitch_err=pitch_err,
-        elapsed=clock.monotonic() - t0,
+        elapsed=elapsed,
         frames=frames,
         yaw=yaw_acc.snapshot() if (track and frames) else None,
         pitch=pitch_acc.snapshot() if (pitch_acc is not None and frames) else None,
@@ -492,11 +526,21 @@ def strafe_align(
         # 例外で抜けても移動・視点を確実に止める
         move.stop()
         look.stop()
+    elapsed = clock.monotonic() - t0
+    logger.debug(
+        "[%s] align end: %s yaw_err=%+.2f pitch_err=%+.2f frames=%d %.2fs",
+        name,
+        reason,
+        yaw_err,
+        pitch_err,
+        frames,
+        elapsed,
+    )
     return AimResult(
         converged=converged,
         yaw_err=yaw_err,
         pitch_err=pitch_err,
-        elapsed=clock.monotonic() - t0,
+        elapsed=elapsed,
         frames=frames,
         yaw=lat_acc.snapshot() if (track and frames) else None,  # 誤差=横ずれ[m]
         pitch=pitch_acc.snapshot() if (track and frames) else None,

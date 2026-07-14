@@ -4,6 +4,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+from app.cli._logging import setup_logging
 from app.perception.capture import WindowsVRChatCapture
 from app.cli._keys import key_events
 from app.mapping.mapper import RoomMapper
@@ -49,6 +50,7 @@ def _key_thread(
 
 
 def main() -> None:
+    setup_logging()
     reader = PoseReader(source=WindowsVRChatCapture())
     mapper = RoomMapper()
     pause_evt = threading.Event()
