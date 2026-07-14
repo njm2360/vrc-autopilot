@@ -18,6 +18,8 @@ decode-demo = "pose_hud.cli.decode_demo:main"
 map-room = "pose_hud.cli.map_room:main"
 find-button = "pose_hud.cli.find_button:main"
 patrol-buttons = "pose_hud.cli.patrol_buttons:main"
+probe-axes = "pose_hud.cli.probe_axes:main"
+sim-face = "pose_hud.cli.sim_face:main"
 
 [dependency-groups]
 dev = ["pytest>=8.0"]
