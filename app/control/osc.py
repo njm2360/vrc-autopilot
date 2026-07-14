@@ -1,3 +1,5 @@
+import time
+
 from pythonosc.udp_client import SimpleUDPClient
 
 
@@ -53,6 +55,7 @@ class VRChatOSC:
 
     def click(self) -> None:
         self.press()
+        time.sleep(0.05)
         self.release()
 
     # ---- アバターパラメータ --------------------------------------------
