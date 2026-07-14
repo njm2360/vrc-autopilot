@@ -22,6 +22,11 @@ class PoseSource(Protocol):
     def get_latest(self) -> Pose | None: ...
 
 
+class Clock(Protocol):
+    def monotonic(self) -> float: ...
+    def sleep(self, seconds: float) -> None: ...
+
+
 def _dist(a: tuple[float, float], b: tuple[float, float]) -> float:
     return math.hypot(a[0] - b[0], a[1] - b[1])
 
@@ -31,18 +36,19 @@ def _next_frame(
     last_t: int | None,
     last_time: float,
     *,
+    clock: Clock = time,
     wait_cap: float = 2.0,
     dt_cap: float = 0.2,
     poll: float = 0.002,
 ) -> tuple[Pose | None, float, float]:
-    deadline = time.monotonic() + wait_cap
-    while time.monotonic() < deadline:
+    deadline = clock.monotonic() + wait_cap
+    while clock.monotonic() < deadline:
         pose = reader.get_latest()
         if pose is not None and pose.time_ms != last_t:
-            now = time.monotonic()
+            now = clock.monotonic()
             return pose, min(now - last_time, dt_cap), now
-        time.sleep(poll)
-    return None, 0.0, time.monotonic()
+        clock.sleep(poll)
+    return None, 0.0, clock.monotonic()
 
 
 @dataclass
@@ -78,6 +84,7 @@ def follow_path(
     gains: PatrolGains,
     nav: NavControllers,
     *,
+    clock: Clock = time,
     recorder: Recorder | None = None,
     announce: Callable[[str], None] | None = None,
     name: str = "",
@@ -93,13 +100,13 @@ def follow_path(
     nav.forward.reset()
     idx = 1 if len(wps) > 1 else 0
     last_t: int | None = None
-    last_time = t0 = time.monotonic()
+    last_time = t0 = clock.monotonic()
     frames = 0
     reason = "arrived"
     yaw_acc = AxisAccumulator() if track else None
     try:
         while idx < len(wps):
-            pose, dt, now = _next_frame(reader, last_t, last_time)
+            pose, dt, now = _next_frame(reader, last_t, last_time, clock=clock)
             if pose is None:
                 reason = "hud_lost"
                 say(f"  [{name}] HUD lost, abort nav")
@@ -162,7 +169,7 @@ def follow_path(
         arrived=(reason == "arrived"),
         reason=reason,
         path=None,
-        elapsed=time.monotonic() - t0,
+        elapsed=clock.monotonic() - t0,
         frames=frames,
         yaw=yaw_acc.snapshot() if (track and frames) else None,
     )
@@ -178,6 +185,7 @@ def _face_loop(
     control_pitch: bool,
     phase: str,
     extra: dict[str, float],
+    clock: Clock,
     recorder: Recorder | None,
     name: str,
 ) -> AimResult:
@@ -193,7 +201,7 @@ def _face_loop(
     face.yaw.reset()
     face.pitch.reset()
     last_t: int | None = None
-    last_time = t0 = time.monotonic()
+    last_time = t0 = clock.monotonic()
     frames = 0
     settle = 0
     converged = False
@@ -202,8 +210,8 @@ def _face_loop(
     yaw_acc = AxisAccumulator() if track else None
     pitch_acc = AxisAccumulator() if (track and control_pitch) else None
     try:
-        while time.monotonic() - t0 < gains.face_timeout:
-            pose, dt, now = _next_frame(reader, last_t, last_time)
+        while clock.monotonic() - t0 < gains.face_timeout:
+            pose, dt, now = _next_frame(reader, last_t, last_time, clock=clock)
             if pose is None:
                 reason = "hud_lost"
                 break
@@ -258,7 +266,7 @@ def _face_loop(
         converged=converged,
         yaw_err=yaw_err,
         pitch_err=pitch_err,
-        elapsed=time.monotonic() - t0,
+        elapsed=clock.monotonic() - t0,
         frames=frames,
         yaw=yaw_acc.snapshot() if (track and frames) else None,
         pitch=pitch_acc.snapshot() if (pitch_acc is not None and frames) else None,
@@ -275,6 +283,7 @@ def strafe_align(
     face: FaceControllers,
     strafe: AxisController,
     *,
+    clock: Clock = time,
     recorder: Recorder | None = None,
     name: str = "",
 ) -> AimResult:
@@ -296,7 +305,7 @@ def strafe_align(
     strafe.reset()
     tgt_xz = (target_xyz[0], target_xyz[2])
     last_t: int | None = None
-    last_time = t0 = time.monotonic()
+    last_time = t0 = clock.monotonic()
     frames = 0
     settle = 0
     converged = False
@@ -309,8 +318,8 @@ def strafe_align(
     win_pos: tuple[float, float] | None = None
     win_commanded = False
     try:
-        while time.monotonic() - t0 < gains.align_timeout:
-            pose, dt, now = _next_frame(reader, last_t, last_time)
+        while clock.monotonic() - t0 < gains.align_timeout:
+            pose, dt, now = _next_frame(reader, last_t, last_time, clock=clock)
             if pose is None:
                 reason = "hud_lost"
                 break
@@ -384,7 +393,7 @@ def strafe_align(
         converged=converged,
         yaw_err=yaw_err,
         pitch_err=pitch_err,
-        elapsed=time.monotonic() - t0,
+        elapsed=clock.monotonic() - t0,
         frames=frames,
         yaw=lat_acc.snapshot() if (track and frames) else None,  # 誤差=横ずれ[m]
         pitch=pitch_acc.snapshot() if (track and frames) else None,
@@ -399,6 +408,7 @@ def aim_at(
     gains: PatrolGains,
     face: FaceControllers,
     *,
+    clock: Clock = time,
     recorder: Recorder | None = None,
     name: str = "",
 ) -> AimResult:
@@ -418,6 +428,7 @@ def aim_at(
         control_pitch=True,
         phase="face",
         extra={"tx": target_xyz[0], "ty": target_xyz[1], "tz": target_xyz[2]},
+        clock=clock,
         recorder=recorder,
         name=name,
     )
@@ -431,6 +442,7 @@ def turn_to(
     face: FaceControllers,
     *,
     pitch_deg: float | None = None,
+    clock: Clock = time,
     recorder: Recorder | None = None,
     name: str = "",
 ) -> AimResult:
@@ -447,6 +459,7 @@ def turn_to(
         control_pitch=pitch_deg is not None,
         phase="turn",
         extra={},
+        clock=clock,
         recorder=recorder,
         name=name,
     )

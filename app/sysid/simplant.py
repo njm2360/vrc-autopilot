@@ -178,3 +178,19 @@ class SimulatedVRChat:
 
     def __exit__(self, *exc) -> None:
         self.close()
+
+
+class SimClock:
+    def __init__(self, sim: SimulatedVRChat):
+        self.sim = sim
+        self.t = 0.0
+
+    def monotonic(self) -> float:
+        return self.t
+
+    def sleep(self, seconds: float) -> None:
+        target = self.t + seconds
+        while self.sim.next_frame_time() <= target:
+            self.t = self.sim.next_frame_time()
+            self.sim.step()
+        self.t = target

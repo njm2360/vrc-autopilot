@@ -14,7 +14,7 @@ from app.control.controller import (
     nav_controllers,
 )
 from app.control.maneuvers import aim_at, follow_path, turn_to
-from app.sysid.simplant import SimulatedVRChat
+from app.sysid.simplant import SimClock, SimulatedVRChat
 from app.sysid.identify import (
     AxisModel,
     PlantModel,
@@ -55,24 +55,6 @@ def make_plant(dead: float = DEAD, dt: float = DT) -> PlantModel:
         },
         dt_mean=dt,
     )
-
-
-class SimClock:
-    """SimulatedVRChat をフレーム境界で進める模擬クロック(実時間なしでプローブを回す)。"""
-
-    def __init__(self, sim: SimulatedVRChat):
-        self.sim = sim
-        self.t = 0.0
-
-    def monotonic(self) -> float:
-        return self.t
-
-    def sleep(self, s: float) -> None:
-        target = self.t + s
-        while self.sim.next_frame_time() <= target:
-            self.t = self.sim.next_frame_time()
-            self.sim.step()
-        self.t = target
 
 
 def probe(sim: SimulatedVRChat, axis: str, segments):
@@ -158,24 +140,28 @@ def test_move_probe_stays_within_band():
 
 
 def test_all_control_loops_run_against_sim():
-    """本番の全制御ループ(移動追従+正対)が模擬プラント注入で無改造で回る。"""
+    """本番の全制御ループ(移動追従+正対)が模擬プラント注入で無改造・非実時間で回る。"""
     plant = make_plant()
     gains = PatrolGains(nav_timeout=10.0, face_timeout=2.5)
-    sim = SimulatedVRChat(plant).start_realtime()  # 原点, yaw=0(+Z向き)
-    try:
-        nav = follow_path(
-            sim, sim, sim, [(0.0, 0.0), (0.0, 1.5)], gains, nav_controllers(gains)
-        )
-        aim = aim_at(
-            sim,
-            sim,
-            (1.0, 1.5, 4.0),
-            gains,
-            face_controllers(gains),
-            recorder=ListRecorder(),
-        )
-    finally:
-        sim.close()
+    sim = SimulatedVRChat(plant)  # 原点, yaw=0(+Z向き)
+    nav = follow_path(
+        sim,
+        sim,
+        sim,
+        [(0.0, 0.0), (0.0, 1.5)],
+        gains,
+        nav_controllers(gains),
+        clock=SimClock(sim),
+    )
+    aim = aim_at(
+        sim,
+        sim,
+        (1.0, 1.5, 4.0),
+        gains,
+        face_controllers(gains),
+        clock=SimClock(sim),
+        recorder=ListRecorder(),
+    )
     assert nav.arrived and nav.reason == "arrived"
     assert aim.frames >= 5
     assert aim.yaw is not None and aim.pitch is not None
@@ -220,17 +206,20 @@ def test_run_csv_roundtrip(tmp_path):
     assert m2.deadtime_s == pytest.approx(m1.deadtime_s)
 
 
-def test_turn_to_runs_against_realtime_sim():
-    """本番の正対ループ(turn_to)が模擬プラントで無改造で回る(実時間 ~2s)。"""
+def test_turn_to_runs_against_sim():
+    """本番の正対ループ(turn_to)が模擬プラントで無改造・非実時間で回る(実時間はかからない)。"""
     plant = make_plant()
     gains = PatrolGains(face_timeout=2.0)
-    sim = SimulatedVRChat(plant).start_realtime()
-    try:
-        res = turn_to(
-            sim, sim, 25.0, gains, face_controllers(gains), recorder=ListRecorder()
-        )
-    finally:
-        sim.close()
+    sim = SimulatedVRChat(plant)
+    res = turn_to(
+        sim,
+        sim,
+        25.0,
+        gains,
+        face_controllers(gains),
+        clock=SimClock(sim),
+        recorder=ListRecorder(),
+    )
     assert res.frames > 10
     assert res.yaw is not None  # 応答指標(osc / overshoot 等)が取れている
     assert abs(res.yaw_err) < 25.0  # 誤差は初期値から減っている

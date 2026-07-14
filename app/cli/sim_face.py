@@ -18,7 +18,7 @@ from app.cli._ctl_log import ControlLog
 from app.cli.patrol_buttons import _add_gain_args
 from app.control.controller import PatrolGains, face_controllers
 from app.control.maneuvers import turn_to
-from app.sysid.simplant import SimulatedVRChat
+from app.sysid.simplant import SimClock, SimulatedVRChat
 from app.sysid.identify import PlantModel
 from app.control.telemetry import ListRecorder
 
@@ -59,24 +59,24 @@ def main() -> None:
         f"gains: kp={gains.turn_kp} ki={gains.turn_ki} kd={gains.turn_kd} "
         f"deadzone={gains.turn_deadzone} tol={gains.face_tol}°"
     )
-    print(f"{'err':>8}  {'result':6}  {'time':>6}  {'final':>7}  "
-          f"{'osc':>3}  {'overshoot':>9}  {'settle':>6}")
+    print(
+        f"{'err':>8}  {'result':6}  {'time':>6}  {'final':>7}  "
+        f"{'osc':>3}  {'overshoot':>9}  {'settle':>6}"
+    )
     ok = 0
     for err in errs:
-        sim = SimulatedVRChat(plant).start_realtime()
-        try:
-            res = turn_to(
-                sim,
-                sim,
-                err,  # sim は yaw=0 で始まるので目標=初期誤差
-                gains,
-                face_controllers(gains),
-                pitch_deg=args.pitch_err,  # sim は pitch=0 で始まるので目標=初期誤差
-                recorder=recorder,
-                name=f"err{err:g}",
-            )
-        finally:
-            sim.close()
+        sim = SimulatedVRChat(plant)
+        res = turn_to(
+            sim,
+            sim,
+            err,  # sim は yaw=0 で始まるので目標=初期誤差
+            gains,
+            face_controllers(gains),
+            pitch_deg=args.pitch_err,  # sim は pitch=0 で始まるので目標=初期誤差
+            clock=SimClock(sim),
+            recorder=recorder,
+            name=f"err{err:g}",
+        )
         ok += res.converged
         m = res.yaw
         print(
