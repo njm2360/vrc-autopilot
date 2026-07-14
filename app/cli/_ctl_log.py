@@ -2,7 +2,7 @@ import csv
 
 FIELDS = [
     "t",  # 開始からの経過秒
-    "phase",  # nav / face
+    "phase",  # nav / face / align
     "target",  # ターゲット名
     "wp",  # 追従中のウェイポイント番号(navのみ)
     "dt",  # 前フレームからの実経過秒
@@ -17,6 +17,7 @@ FIELDS = [
     "dist",  # ターゲットまでの水平距離[m]
     "yaw_err",
     "pitch_err",
+    "lat_err",  # 横方向誤差[m](alignのみ。+なら目標が右)
     "turn_p",
     "turn_i",
     "turn_d",
@@ -25,6 +26,10 @@ FIELDS = [
     "pitch_i",
     "pitch_d",
     "pitch_cmd",
+    "strafe_p",
+    "strafe_i",
+    "strafe_d",
+    "strafe",  # Horizontal(横移動)PID内訳と出力(alignのみ)
     "fwd",  # Vertical(前進)出力
     "fwd_factor",  # 向きズレによる前進減衰係数
 ]

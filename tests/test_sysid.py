@@ -115,7 +115,7 @@ def test_deadtime_recovery():
 
 
 def test_movement_projection_independent_of_heading():
-    # 体の向きが斜めでも、ストレイフ変位が右方向へ正しく射影される
+    # 体の向きが斜めでも、左右移動の変位が右方向へ正しく射影される
     plant = make_plant()
     sim = SimulatedVRChat(plant, yaw=37.0)
     run = probe(sim, "strafe", move_schedule([0.5, 1.0], hold=0.8, settle=0.4))

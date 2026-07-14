@@ -12,11 +12,16 @@ import math
 import numpy as np
 import pytest
 
-from app.control.controller import PatrolGains, face_controllers, nav_controllers
+from app.control.controller import (
+    PatrolGains,
+    face_controllers,
+    nav_controllers,
+    strafe_controller,
+)
 from app.core.pose import Pose
 from app.mapping.mapper import Bounds
 from app.spatial.navigation import NavGrid
-from app.control.maneuvers import aim_at, follow_path, turn_to
+from app.control.maneuvers import aim_at, follow_path, strafe_align, turn_to
 from app.control.pilot import Pilot
 from app.control.telemetry import AxisMetrics
 
@@ -170,6 +175,75 @@ def test_turn_to_pitch_none_leaves_pitch_metrics_none():
     )
     assert isinstance(res.yaw, AxisMetrics)
     assert res.pitch is None  # pitch 未制御なら指標も None
+
+
+# ---- strafe_align(横移動による最終照準) --------------------------------
+def test_strafe_align_converges_when_on_line():
+    # 視線の延長上にターゲット(横ずれ0・pitch 0)→ 即収束
+    g = _gains(settle=3, align_tol=0.02)
+    poses = [_pose(i + 1, (0.0, 1.0, 0.0)) for i in range(5)]
+    look, move = RecActuator(), RecActuator()
+    res = strafe_align(
+        FakeReader(poses),
+        look,
+        move,
+        (0.0, 1.0, 5.0),
+        g,
+        face_controllers(g),
+        strafe_controller(g),
+    )
+    assert res.converged and res.reason == "converged"
+    assert move.stops == 1 and look.stops == 1  # 終了時に必ず停止
+
+
+def test_strafe_align_strafes_toward_error_side():
+    # 目標が右(+X)にずれている → 横移動指令は正(右)
+    g = _gains(settle=3, align_tol=0.02)
+    poses = [_pose(i + 1, (0.0, 1.0, 0.0)) for i in range(10)]
+    look, move = RecActuator(), RecActuator()
+    strafe_align(
+        FakeReader(poses),
+        look,
+        move,
+        (0.3, 1.0, 3.0),  # 横ずれ ≈ +0.3m
+        g,
+        face_controllers(g),
+        strafe_controller(g),
+    )
+    cmds = [s for _f, s in move.moves]
+    assert cmds and all(s > 0.0 for s in cmds)
+    assert all(t == 0.0 for t, _p in look.looks)  # 視点(yaw)は回さない
+
+
+def test_strafe_align_stuck_abort():
+    # 位置が変わらない(壁に押し付け)のに誤差が残る → stuck で打ち切り
+    g = _gains(
+        settle=3, align_tol=0.02, align_stuck_time=0.15, align_timeout=5.0
+    )
+
+    class FrozenReader:
+        """毎回新しい time_ms を返すが位置は動かない(壁押し付けの再現)。"""
+
+        def __init__(self):
+            self.t = 0
+
+        def get_latest(self):
+            self.t += 1
+            return _pose(self.t, (0.0, 1.0, 0.0))
+
+    look, move = RecActuator(), RecActuator()
+    res = strafe_align(
+        FrozenReader(),
+        look,
+        move,
+        (0.5, 1.0, 3.0),
+        g,
+        face_controllers(g),
+        strafe_controller(g),
+    )
+    assert not res.converged and res.reason == "stuck"
+    assert res.elapsed < 2.0  # align_timeout(5s)よりずっと早く抜ける
+    assert move.stops == 1
 
 
 # ---- チューニング指標(AxisMetrics) -----------------------------------

@@ -14,7 +14,7 @@ class VRChatOSC:
         self.client.send_message(f"/input/{name}", _clamp(float(value)))
 
     def move(self, forward: float = 0.0, strafe: float = 0.0) -> None:
-        """前後(forward)と左右ストレイフ(strafe)を同時指定。"""
+        """前後(forward)と左右移動(strafe)を同時指定。"""
         self.axis("Vertical", forward)
         self.axis("Horizontal", strafe)
 

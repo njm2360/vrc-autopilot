@@ -19,7 +19,7 @@ VRChat の入力軸(視点・移動)の応答特性を実機で測定し、`plan
 | `yaw`     | `LookHorizontal` | deg/s | + で右旋回。不感帯の折れ点付近(0.45–0.7)を細かく測る                       |
 | `pitch`   | `LookVertical`   | deg/s | ±90° で頭打ちになるため保持時間は短め(`--pitch-hold`)                      |
 | `forward` | `Vertical`       | m/s   | 前後移動                                                                   |
-| `strafe`  | `Horizontal`     | m/s   | 左右移動。ストレイフ微調整がうまくいくかは、この軸の低指令域の特性で決まる |
+| `strafe`  | `Horizontal`     | m/s   | 左右移動。align(横移動での最終照準)の精度は、この軸の低指令域の特性で決まる |
 
 ## 実機での測定手順
 

@@ -175,6 +175,43 @@ def _add_gain_args(parser) -> None:
     )
     parser.add_argument("--fwd-kp", type=float, default=d.fwd_kp)
     parser.add_argument("--fwd-kd", type=float, default=d.fwd_kd)
+    # 最終照準(align): 残り yaw 誤差を横移動で吸収(視点軸の不感帯回避)
+    parser.add_argument(
+        "--align-tol",
+        type=float,
+        default=d.align_tol,
+        help="align の横方向誤差の収束閾値[m](0=alignフェーズ無効)",
+    )
+    parser.add_argument(
+        "--align-timeout", type=float, default=d.align_timeout, help="align の打切り秒"
+    )
+    parser.add_argument(
+        "--align-stuck-time",
+        type=float,
+        default=d.align_stuck_time,
+        help="指令を出しても動けない状態がこの秒数続いたら打切り(角のデッドロック防止)",
+    )
+    parser.add_argument(
+        "--align-stuck-eps",
+        type=float,
+        default=d.align_stuck_eps,
+        help="スタック判定の移動距離閾値[m]",
+    )
+    parser.add_argument("--strafe-kp", type=float, default=d.strafe_kp)
+    parser.add_argument("--strafe-ki", type=float, default=d.strafe_ki)
+    parser.add_argument("--strafe-kd", type=float, default=d.strafe_kd)
+    parser.add_argument(
+        "--strafe-ilim",
+        type=float,
+        default=d.strafe_ilim,
+        help="strafe積分項の絶対上限",
+    )
+    parser.add_argument(
+        "--strafe-deadzone",
+        type=float,
+        default=d.strafe_deadzone,
+        help="移動軸の不感帯補償(既定0=無効)",
+    )
 
 
 def main() -> None:

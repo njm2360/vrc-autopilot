@@ -1,17 +1,23 @@
-"""高レベル誘導ファサード。
-
-Pilot は経路計画(navigation)と制御ループ(maneuvers)を束ね、goto / aim /
-visit / patrol のフェーズ連結を提供する。実機 I/O(capture / osc / reader)は
-connect() だけが知っており、コンストラクタ注入ならヘッドレスで動く。
-"""
-
 import math
 import time
 from typing import Callable, Iterable
 
 from .actuator import LookActuator, MouseLookActuator, MoveActuator
-from .controller import PatrolGains, face_controllers, nav_controllers
-from .maneuvers import AimResult, NavResult, PoseSource, aim_at, follow_path, turn_to
+from .controller import (
+    PatrolGains,
+    face_controllers,
+    nav_controllers,
+    strafe_controller,
+)
+from .maneuvers import (
+    AimResult,
+    NavResult,
+    PoseSource,
+    aim_at,
+    follow_path,
+    strafe_align,
+    turn_to,
+)
 from ..spatial.navigation import NavGrid, plan_path
 from .telemetry import NullRecorder, Recorder
 
@@ -41,6 +47,7 @@ class Pilot:
         self._owns_io = owns_io
         self.nav = nav_controllers(self.gains)
         self.face = face_controllers(self.gains)
+        self.strafe = strafe_controller(self.gains)
 
     @classmethod
     def connect(
@@ -155,6 +162,21 @@ class Pilot:
             name=name,
         )
 
+    def align(
+        self, xyz: tuple[float, float, float], *, name: str = "align"
+    ) -> AimResult:
+        return strafe_align(
+            self.reader,
+            self.look,
+            self.move,
+            xyz,
+            self.gains,
+            self.face,
+            self.strafe,
+            recorder=self.recorder,
+            name=name,
+        )
+
     def turn_to(
         self, yaw_deg: float, pitch_deg: float | None = None, *, name: str = "turn"
     ) -> AimResult:
@@ -195,8 +217,14 @@ class Pilot:
         aim = self.aim(xyz, name=name)
         self.announce(
             f"  [{name}] arrived. aim yaw_err={aim.yaw_err:+.2f}° "
-            f"pitch_err={aim.pitch_err:+.2f}°"
+            f"pitch_err={aim.pitch_err:+.2f}° ({aim.reason})"
         )
+        if self.gains.align_tol > 0.0:
+            aim = self.align(xyz, name=name)
+            self.announce(
+                f"  [{name}] align yaw_err={aim.yaw_err:+.2f}° "
+                f"pitch_err={aim.pitch_err:+.2f}° ({aim.reason})"
+            )
         return nav, aim
 
     def patrol(

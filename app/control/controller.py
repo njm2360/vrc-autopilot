@@ -69,13 +69,13 @@ class FaceControllers:
 class PatrolGains:
     """巡回制御のチューニング定数一式(既定値はここに集約)。"""
 
-    # ---- 追従パラメータ ----
+    # ---- 移動・到達 ----
     speed: float = 0.7  # 巡航前進速度の上限(0..1)
     arrive: float = 0.35  # ウェイポイント到達半径[m]
-    # ボタン正面で止まる距離[m]。Use到達距離内に収めること。
-    standoff: float = 1.0
-    face_tol: float = 1.0  # 正対とみなす角度[deg]
-    settle: int = 3  # 収束に必要な、連続で正対を保ったフレーム数
+    standoff: float = 1.0  # ボタン正面で止まる距離[m](Use到達距離内に収める)
+    # ---- 収束判定・打切り ----
+    face_tol: float = 2.0  # 正対(粗合わせ)とみなす角度[deg]
+    settle: int = 3  # 収束判定に必要な連続フレーム数(face / align 共通)
     nav_timeout: float = 60.0  # 移動の打切り秒
     face_timeout: float = 12.0  # 正対の打切り秒
     # ---- 移動中(nav)の yaw: 穏やか・不感帯補償なし ----
@@ -97,6 +97,16 @@ class PatrolGains:
     pitch_kd: float = 0.004
     pitch_ilim: float = 0.5
     pitch_deadzone: float = 0.0  # 既定0=無効。上下がなかなか合わないなら 0.5 程度
+    # ---- 最終照準(align): 視点は回さず横移動で詰める ----
+    align_tol: float = 0.02  # 横ずれの収束閾値[m]。0で align 無効
+    align_timeout: float = 8.0  # 打切り秒
+    align_stuck_time: float = 1.0  # 動けないままこの秒数経過で打切り(壁に阻まれた時)
+    align_stuck_eps: float = 0.02  # 動けないとみなす移動距離[m]
+    strafe_kp: float = 4.0  # 横移動の PID(誤差=横ずれ[m] → Horizontal 指令)
+    strafe_ki: float = 0.8
+    strafe_kd: float = 0.2
+    strafe_ilim: float = 0.3  # 積分項の絶対上限
+    strafe_deadzone: float = 0.0  # 移動軸の不感帯補償(実測で必要になったら)
 
 
 def nav_controllers(g: PatrolGains) -> NavControllers:
@@ -116,6 +126,23 @@ def nav_controllers(g: PatrolGains) -> NavControllers:
         PID(kp=g.fwd_kp, ki=0.0, kd=g.fwd_kd, out_min=0.0, out_max=g.speed, i_limit=0.0)
     )
     return NavControllers(yaw=yaw, forward=forward)
+
+
+def strafe_controller(g: PatrolGains) -> AxisController:
+    """align フェーズの横移動制御器。誤差=横ずれ[m] → Horizontal指令[-1,1]。
+    tol は横ずれの収束閾値(align_tol)。"""
+    return AxisController(
+        PID(
+            kp=g.strafe_kp,
+            ki=g.strafe_ki,
+            kd=g.strafe_kd,
+            out_min=-1.0,
+            out_max=1.0,
+            i_limit=g.strafe_ilim,
+            out_deadzone=g.strafe_deadzone,
+        ),
+        tol=g.align_tol,
+    )
 
 
 def face_controllers(g: PatrolGains) -> FaceControllers:

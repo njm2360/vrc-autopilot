@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import Callable, Protocol
 
 from .actuator import LookActuator, MoveActuator
-from .controller import FaceControllers, NavControllers, PatrolGains
+from .controller import AxisController, FaceControllers, NavControllers, PatrolGains
 from .guidance import forward_factor, heading_error, pitch_error, wrap180
 from ..spatial.navigation import Path
 from ..core.pose import Pose
@@ -67,6 +67,7 @@ class AimResult:
     frames: int
     yaw: AxisMetrics | None = None  # yaw 軸の応答指標
     pitch: AxisMetrics | None = None  # pitch 軸の応答指標(pitch 未制御時は None)
+    reason: str = ""  # "converged" | "timeout" | "hud_lost" | "stuck"(align のみ)
 
 
 def follow_path(
@@ -196,6 +197,7 @@ def _face_loop(
     frames = 0
     settle = 0
     converged = False
+    reason = "timeout"
     yaw_err = pitch_err = 0.0
     yaw_acc = AxisAccumulator() if track else None
     pitch_acc = AxisAccumulator() if (track and control_pitch) else None
@@ -203,6 +205,7 @@ def _face_loop(
         while time.monotonic() - t0 < gains.face_timeout:
             pose, dt, now = _next_frame(reader, last_t, last_time)
             if pose is None:
+                reason = "hud_lost"
                 break
             last_t, last_time = pose.time_ms, now
             frames += 1
@@ -213,6 +216,7 @@ def _face_loop(
                 settle += 1
                 if settle >= gains.settle:
                     converged = True
+                    reason = "converged"
                     break
             else:
                 settle = 0
@@ -258,6 +262,133 @@ def _face_loop(
         frames=frames,
         yaw=yaw_acc.snapshot() if (track and frames) else None,
         pitch=pitch_acc.snapshot() if (pitch_acc is not None and frames) else None,
+        reason=reason,
+    )
+
+
+def strafe_align(
+    reader: PoseSource,
+    look: LookActuator,
+    move: MoveActuator,
+    target_xyz: tuple[float, float, float],
+    gains: PatrolGains,
+    face: FaceControllers,
+    strafe: AxisController,
+    *,
+    recorder: Recorder | None = None,
+    name: str = "",
+) -> AimResult:
+    """最終照準: 視点(yaw)は回さず、体の横移動で誤差を潰す。
+
+    視点軸は指令≈0.55以下が効かず、不感帯補償するとリミットサイクルになる
+    (gain-tuning.md 参照)。移動軸は連続的に効くため、粗い正対(aim_at)後の
+    残り yaw 誤差を横ずれ e = dist·sin(yaw_err)[m] に換算して横移動で吸収
+    すれば発振が原理的に出ない。pitch は従来どおり視点で合わせる。
+
+    収束: |e| < align_tol かつ |pitch_err| < face_tol を settle 回連続。
+    角のボタン等で移動方向が壁に塞がれた場合は、指令を出しても
+    align_stuck_time 秒間 align_stuck_eps[m] 以上動けないことを検出して
+    打ち切る(reason="stuck"。デッドロック防止)。
+    """
+    rec = recorder or NullRecorder()
+    track = not isinstance(rec, NullRecorder)
+    face.pitch.reset()
+    strafe.reset()
+    tgt_xz = (target_xyz[0], target_xyz[2])
+    last_t: int | None = None
+    last_time = t0 = time.monotonic()
+    frames = 0
+    settle = 0
+    converged = False
+    reason = "timeout"
+    yaw_err = pitch_err = 0.0
+    lat_acc = AxisAccumulator() if track else None
+    pitch_acc = AxisAccumulator() if track else None
+    # スタック検出: 窓の開始時刻・位置と、窓内で指令を出したかを追跡する
+    win_t = t0
+    win_pos: tuple[float, float] | None = None
+    win_commanded = False
+    try:
+        while time.monotonic() - t0 < gains.align_timeout:
+            pose, dt, now = _next_frame(reader, last_t, last_time)
+            if pose is None:
+                reason = "hud_lost"
+                break
+            last_t, last_time = pose.time_ms, now
+            frames += 1
+            cur = (pose.position[0], pose.position[2])
+            yaw_err, dist = heading_error(cur, pose.yaw_deg, tgt_xz)
+            lat_err = dist * math.sin(math.radians(yaw_err))  # +なら目標が右
+            pitch_err = pitch_error(pose.position, pose.forward, target_xyz)
+
+            if abs(lat_err) < gains.align_tol and abs(pitch_err) < gains.face_tol:
+                settle += 1
+                if settle >= gains.settle:
+                    converged = True
+                    reason = "converged"
+                    break
+            else:
+                settle = 0
+
+            # 目標が右(+)なら右へ動くと視線上に乗る
+            strafe_cmd = strafe.update(lat_err, dt)
+            pitch_cmd = face.pitch.update(pitch_err, dt)
+            move.move(strafe=strafe_cmd)
+            look.look(0.0, pitch_cmd)
+
+            # スタック検出(壁に押し付けて動けない)
+            if win_pos is None:
+                win_t, win_pos = now, cur
+            win_commanded = win_commanded or abs(strafe_cmd) > 1e-3
+            if now - win_t >= gains.align_stuck_time:
+                moved = _dist(cur, win_pos)
+                if win_commanded and moved < gains.align_stuck_eps:
+                    reason = "stuck"
+                    break
+                win_t, win_pos, win_commanded = now, cur, False
+
+            if track:
+                rec.row(
+                    t=now - t0,
+                    phase="align",
+                    target=name,
+                    dt=dt,
+                    x=pose.position[0],
+                    y=pose.position[1],
+                    z=pose.position[2],
+                    yaw=pose.yaw_deg,
+                    pitch=pose.pitch_deg,
+                    tx=target_xyz[0],
+                    ty=target_xyz[1],
+                    tz=target_xyz[2],
+                    dist=dist,
+                    yaw_err=yaw_err,
+                    pitch_err=pitch_err,
+                    lat_err=lat_err,
+                    strafe_p=strafe.last_p,
+                    strafe_i=strafe.last_i,
+                    strafe_d=strafe.last_d,
+                    strafe=strafe_cmd,
+                    pitch_p=face.pitch.last_p,
+                    pitch_i=face.pitch.last_i,
+                    pitch_d=face.pitch.last_d,
+                    pitch_cmd=pitch_cmd,
+                )
+                lat_acc.update(lat_err, strafe_cmd, now - t0, dt, gains.align_tol)
+                pitch_acc.update(pitch_err, pitch_cmd, now - t0, dt, gains.face_tol)
+    finally:
+        # 例外で抜けても移動・視点を確実に止める
+        move.stop()
+        look.stop()
+    return AimResult(
+        converged=converged,
+        yaw_err=yaw_err,
+        pitch_err=pitch_err,
+        elapsed=time.monotonic() - t0,
+        frames=frames,
+        yaw=lat_acc.snapshot() if (track and frames) else None,  # 誤差=横ずれ[m]
+        pitch=pitch_acc.snapshot() if (track and frames) else None,
+        reason=reason,
     )
 
 
