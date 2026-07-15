@@ -52,7 +52,8 @@ Shader "Custom/PoseTelemetryHUD"
             #define COLS 32
             static const uint MAGIC = 0x5AC3E7A1u;
 
-            // 3x5 pixel font: 3 bits per row, row0 (top) at LSB, left pixel = MSB of each row
+            // 5x7 pixel font (HD44780 style): one uint per row (5 bits, left pixel = bit4),
+            // 7 rows per glyph, top row first
             #define G_MINUS 10u
             #define G_DOT   11u
             #define G_SP    12u
@@ -62,37 +63,50 @@ Shader "Custom/PoseTelemetryHUD"
             #define G_P     16u
             #define G_H     17u
             #define G_R     18u
-            static const uint FONT[19] = {
-                0x7B6F, 0x74B2, 0x79CF, 0x73CF, 0x13ED, // 0-4
-                0x73E7, 0x7BE7, 0x248F, 0x7BEF, 0x73EF, // 5-9
-                0x01C0, // -
-                0x2000, // .
-                0x0000, // space
-                0x5AAD, // X
-                0x24AD, // Y
-                0x788F, // Z
-                0x49EF, // P
-                0x5BED, // H
-                0x5DEF  // R
+            static const uint FONT[19 * 7] = {
+                0x0E, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0E, // 0
+                0x04, 0x0C, 0x04, 0x04, 0x04, 0x04, 0x0E, // 1
+                0x0E, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1F, // 2
+                0x1F, 0x02, 0x04, 0x02, 0x01, 0x11, 0x0E, // 3
+                0x02, 0x06, 0x0A, 0x12, 0x1F, 0x02, 0x02, // 4
+                0x1F, 0x10, 0x1E, 0x01, 0x01, 0x11, 0x0E, // 5
+                0x06, 0x08, 0x10, 0x1E, 0x11, 0x11, 0x0E, // 6
+                0x1F, 0x01, 0x02, 0x04, 0x08, 0x08, 0x08, // 7
+                0x0E, 0x11, 0x11, 0x0E, 0x11, 0x11, 0x0E, // 8
+                0x0E, 0x11, 0x11, 0x0F, 0x01, 0x02, 0x0C, // 9
+                0x00, 0x00, 0x00, 0x1F, 0x00, 0x00, 0x00, // -
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x0C, // .
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // space
+                0x11, 0x11, 0x0A, 0x04, 0x0A, 0x11, 0x11, // X
+                0x11, 0x11, 0x11, 0x0A, 0x04, 0x04, 0x04, // Y
+                0x1F, 0x01, 0x02, 0x04, 0x08, 0x10, 0x1F, // Z
+                0x1E, 0x11, 0x11, 0x1E, 0x10, 0x10, 0x10, // P
+                0x11, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11, // H
+                0x1E, 0x11, 0x11, 0x1E, 0x14, 0x12, 0x11  // R
             };
 
             #define TXT_CHARS 10
             #define TXT_LINES 6
 
-            // Fixed-width field "L-12345.67": returns glyph index for char ci
+            // Fixed-width field "L -12345.67" (right-aligned, floating sign):
+            // returns glyph index for char ci
             uint glyphAt(float v, uint label, uint ci)
             {
                 if (ci == 0u) return label;
-                if (ci == 1u) return v < 0.0 ? G_MINUS : G_SP;
                 if (ci == 7u) return G_DOT;
                 uint s = min((uint)(abs(v) * 100.0 + 0.5), 9999999u);
                 if (ci == 8u) return (s / 10u) % 10u;
                 if (ci == 9u) return s % 10u;
+                // ci 1..6: integer part
                 uint div = 1u;
-                for (uint k = ci; k < 6u; k++) div *= 10u;
+                for (uint k = ci; k < 6u; k++) div *= 10u; // 10^(6-ci)
                 uint ip = s / 100u;
-                if (ci < 6u && ip < div) return G_SP; // suppress leading zeros
-                return (ip / div) % 10u;
+                if (ci >= 2u && (ci == 6u || ip >= div))
+                    return (ip / div) % 10u;
+                // no digit here: minus sits just left of the first digit
+                if (v < 0.0 && (ci == 5u || ip >= div / 10u))
+                    return G_MINUS;
+                return G_SP;
             }
 
             fixed4 frag (v2f i) : SV_Target
@@ -134,7 +148,7 @@ Shader "Custom/PoseTelemetryHUD"
                 }
 
                 // --- Top-right: human-readable position / attitude HUD ---
-                float2 cellPx = float2(4.0, 6.0) * _TextPx; // 3x5 glyph + 1px spacing
+                float2 cellPx = float2(6.0, 8.0) * _TextPx; // 5x7 glyph + 1px spacing
                 float2 hudPx = float2(TXT_CHARS, TXT_LINES) * cellPx;
                 float2 t = p - float2(_ScreenParams.x - _OffsetX - hudPx.x, _OffsetY);
 
@@ -143,16 +157,16 @@ Shader "Custom/PoseTelemetryHUD"
 
                 uint ci = (uint)(t.x / cellPx.x);
                 uint li = (uint)(t.y / cellPx.y);
-                uint rx = (uint)(t.x / _TextPx) % 4u;
-                uint ry = (uint)(t.y / _TextPx) % 6u;
+                uint rx = (uint)(t.x / _TextPx) % 6u;
+                uint ry = (uint)(t.y / _TextPx) % 8u;
 
                 float3 camPos = _WorldSpaceCameraPos;
                 float3 right = UNITY_MATRIX_V[0].xyz;
                 float3 up    = UNITY_MATRIX_V[1].xyz;
                 float3 fwd   = -UNITY_MATRIX_V[2].xyz;
 
-                // Unity euler (deg): P = pitch (X), H = heading/yaw (Y), R = roll (Z)
-                float pitch = degrees(asin(clamp(-fwd.y, -1.0, 1.0)));
+                // P = pitch (up positive), H = heading/yaw, R = roll
+                float pitch = degrees(asin(clamp(fwd.y, -1.0, 1.0)));
                 float yaw   = degrees(atan2(fwd.x, fwd.z));
                 float roll  = degrees(atan2(right.y, up.y));
 
@@ -161,8 +175,8 @@ Shader "Custom/PoseTelemetryHUD"
 
                 uint gph = glyphAt(vals[li], labels[li], ci);
                 uint on = 0u;
-                if (rx < 3u && ry < 5u)
-                    on = (FONT[gph] >> (ry * 3u + (2u - rx))) & 1u;
+                if (rx < 5u && ry < 7u)
+                    on = (FONT[gph * 7u + ry] >> (4u - rx)) & 1u;
                 return on ? fixed4(1,1,1,1) : fixed4(0,0,0,1);
             }
             ENDCG
