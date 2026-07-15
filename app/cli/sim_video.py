@@ -32,17 +32,74 @@ TARGET_COLOR = (255, 80, 40)
 
 
 # ---- CSV ---------------------------------------------------------------
+NEED = ["t", "x", "z", "yaw", "pitch"]
+# 任意列(無い/空欄は NaN)。ControlLog の全フェーズ列に対応する
+OPTIONAL = [
+    "tx",
+    "tz",
+    "dt",
+    "dist",
+    "yaw_err",
+    "pitch_err",
+    "lat_err",
+    "turn",
+    "pitch_cmd",
+    "fwd",
+    "strafe",
+    "fwd_factor",
+    "turn_p",
+    "turn_i",
+    "turn_d",
+    "strafe_p",
+    "strafe_i",
+    "strafe_d",
+    "wp",
+]
+
+
 def load_frames(path: Path) -> dict[str, np.ndarray]:
-    """フレームCSVを列名→配列の辞書で読む(余分な列は無視)。"""
-    need = ["t", "x", "z", "yaw", "pitch", "tx", "tz", "yaw_err", "turn", "fwd"]
+    """フレームCSVを列名→配列の辞書で読む(必須以外は空欄を NaN として許容)。"""
+
+    def num(v: str) -> float:
+        try:
+            return float(v)
+        except (TypeError, ValueError) as e:
+            return math.nan
+
     with path.open(newline="") as f:
         rows = list(csv.DictReader(f))
     if not rows:
         raise SystemExit(f"empty csv: {path}")
-    out = {k: np.array([float(r[k]) for r in rows]) for k in need if k in rows[0]}
-    missing = [k for k in need if k not in out]
+    missing = [k for k in NEED if k not in rows[0]]
     if missing:
         raise SystemExit(f"csv missing columns: {missing}")
+    out = {k: np.array([num(r[k]) for r in rows]) for k in NEED}
+    for k in OPTIONAL:
+        out[k] = np.array([num(r.get(k)) for r in rows])
+    for k in ("phase", "target"):
+        out[k] = np.array([r.get(k) or "" for r in rows], dtype=object)
+    # 多フェーズ連結ログ(実機の patrol 等)は t がフェーズ相対で巻き戻るので、
+    # 巻き戻り箇所を dt 列(なければ中央値ステップ)で埋めて単調時間に変換する
+    t = out["t"]
+    step = np.diff(t)
+    if np.any(step < 0):
+        good = np.where(step >= 0, step, np.nan)
+        med = float(np.nanmedian(good)) if np.isfinite(good).any() else 0.017
+        fill = np.where(np.isfinite(out["dt"][1:]), out["dt"][1:], med)
+        step = np.where(np.isnan(good), fill, good)
+        out["t"] = np.concatenate([[t[0]], t[0] + np.cumsum(step)])
+    # 導出量: 実ヨーレート[deg/s]・実速度[m/s](ポーズ差分。先頭は0)
+    dt = np.diff(out["t"], prepend=out["t"][0])
+    dt = np.where(dt > 1e-6, dt, np.nan)
+    dyaw = (np.diff(out["yaw"], prepend=out["yaw"][0]) + 180.0) % 360.0 - 180.0
+    out["yaw_rate"] = np.nan_to_num(dyaw / dt)
+    out["speed_ms"] = np.nan_to_num(
+        np.hypot(
+            np.diff(out["x"], prepend=out["x"][0]),
+            np.diff(out["z"], prepend=out["z"][0]),
+        )
+        / dt
+    )
     return out
 
 
@@ -132,7 +189,9 @@ def render_3d(
     mask = (rows >= top[None, :]) & (rows < bot[None, :])
     img[mask] = np.broadcast_to(wall_rgb[None, :, :], (h, w, 3))[mask]
 
-    # 目標点ビルボード(壁より手前なら描く)
+    # 目標点ビルボード(壁より手前なら描く。目標なし=NaN はスキップ)
+    if not (math.isfinite(tx) and math.isfinite(tz)):
+        return img
     dx, dz = tx - x, tz - z
     tdist = math.hypot(dx, dz)
     trel = math.atan2(dx, dz) - math.radians(yaw)
@@ -208,13 +267,16 @@ class MapPane:
     def render(self, idx: int) -> np.ndarray:
         d = self.data
         if idx + 1 > self._drawn:  # 通過済み軌跡を差分で焼き込む
-            px, py = self.to_px(d["x"][self._drawn : idx + 1], d["z"][self._drawn : idx + 1])
+            px, py = self.to_px(
+                d["x"][self._drawn : idx + 1], d["z"][self._drawn : idx + 1]
+            )
             self.trail[py, px] = True
             self._drawn = idx + 1
         img = self.bg.copy()
         img[self.trail] = (80, 200, 120)
-        tx, ty = self.to_px(d["tx"][idx], d["tz"][idx])
-        self._disc(img, int(tx), int(ty), 3, TARGET_COLOR)
+        if math.isfinite(d["tx"][idx]) and math.isfinite(d["tz"][idx]):
+            tx, ty = self.to_px(d["tx"][idx], d["tz"][idx])
+            self._disc(img, int(tx), int(ty), 3, TARGET_COLOR)
         px, py = self.to_px(d["x"][idx], d["z"][idx])
         self._disc(img, int(px), int(py), 3, (80, 160, 255))
         # 向き矢印(yaw: +Z基準+右回り → 画面は+Z上向きなので dy=-cos)
@@ -228,29 +290,91 @@ class MapPane:
 
 
 # ---- HUD ---------------------------------------------------------------
+PHASE_COLOR = {
+    "nav": (80, 160, 255),
+    "move": (80, 200, 120),
+    "face": (255, 180, 60),
+    "turn": (120, 220, 220),
+    "align": (200, 120, 255),
+}
+
+# アクチュエータ4軸: (列名, ラベル, 不感帯オンセット, 色)
+AXES = [
+    ("turn", "turn", 0.50, (255, 180, 60)),
+    ("pitch_cmd", "pitch", 0.10, (120, 220, 220)),
+    ("fwd", "fwd", 0.10, (80, 200, 120)),
+    ("strafe", "strafe", 0.10, (200, 120, 255)),
+]
+
+
 def draw_hud(frame: np.ndarray, d: dict, idx: int, hud_h: int) -> np.ndarray:
-    """下部にバー(turn/fwd)とテキストを描く。"""
+    """下部にアクチュエータ4軸バー(不感帯目盛りつき)・フェーズ・誤差・PID内訳を描く。"""
     h, w, _ = frame.shape
     y0 = h - hud_h
     frame[y0:, :] = (18, 18, 22)
     img = Image.fromarray(frame)
     dr = ImageDraw.Draw(img)
-    cx = w // 4 + 20
-    bw = w // 4 - 50
+    cx = w // 4 + 30
+    bw = w // 4 - 80
 
-    def bar(y, val, lo, hi, color, label):
-        dr.rectangle([cx - bw, y, cx + bw, y + 10], outline=(90, 90, 90))
-        n = max(-1.0, min(1.0, (2 * (val - lo) / (hi - lo)) - 1.0))
-        dr.rectangle(sorted_box(cx, cx + int(n * bw), y, y + 10), fill=color)
-        dr.text((cx - bw - 8, y), label, fill=(200, 200, 200), anchor="rm")
+    def bar(y, val, onset, color, label):
+        dr.rectangle([cx - bw, y, cx + bw, y + 9], outline=(90, 90, 90))
+        for s in (-1, 1):  # 不感帯オンセットの目盛り(これ未満の指令は効かない)
+            mx = cx + int(s * onset * bw)
+            dr.line([mx, y, mx, y + 9], fill=(150, 70, 70))
+        v = max(-1.0, min(1.0, val)) if math.isfinite(val) else 0.0
+        dr.rectangle(sorted_box(cx, cx + int(v * bw), y, y + 9), fill=color)
+        dr.line([cx, y, cx, y + 9], fill=(160, 160, 160))
+        dr.text((cx - bw - 6, y + 4), label, fill=(200, 200, 200), anchor="rm")
+        dr.text(
+            (cx + bw + 6, y + 4),
+            f"{val:+.2f}" if math.isfinite(val) else "-",
+            fill=(160, 160, 160),
+            anchor="lm",
+        )
 
-    bar(y0 + 8, d["turn"][idx], -1, 1, (255, 180, 60), "turn")
-    bar(y0 + 26, d["fwd"][idx], -1, 1, (80, 200, 120), "fwd")
-    txt = (
-        f"t={d['t'][idx]:6.2f}s  yaw={d['yaw'][idx]:7.1f}  "
-        f"yaw_err={d['yaw_err'][idx]:6.1f}  turn={d['turn'][idx]:+.2f}  fwd={d['fwd'][idx]:+.2f}"
+    for k, (col, label, onset, color) in enumerate(AXES):
+        bar(y0 + 6 + 20 * k, d[col][idx], onset, color, label)
+
+    def f(v, fmt="+6.1f"):
+        return format(v, fmt) if math.isfinite(v) else "-"
+
+    phase = d["phase"][idx]
+    tx0 = w // 2 + 10
+    dt_ms = d["dt"][idx] * 1e3
+    wp = d["wp"][idx]
+    dr.text((tx0, y0 + 6), f"t={d['t'][idx]:7.2f}s", fill=(220, 220, 220))
+    dr.text(
+        (tx0 + 88, y0 + 6), phase or "?", fill=PHASE_COLOR.get(phase, (200, 200, 200))
     )
-    dr.text((w // 2 + 10, y0 + 14), txt, fill=(220, 220, 220))
+    dr.text(
+        (tx0 + 136, y0 + 6),
+        f"{d['target'][idx]}{f' wp{int(wp)}' if math.isfinite(wp) else ''}"
+        f"  dt={f(dt_ms, '.0f')}ms",
+        fill=(
+            (220, 60, 60) if (math.isfinite(dt_ms) and dt_ms > 50) else (170, 170, 170)
+        ),
+    )
+    dr.text(
+        (tx0, y0 + 26),
+        f"yaw_err={f(d['yaw_err'][idx])}  pitch_err={f(d['pitch_err'][idx])}  "
+        f"lat={f(d['lat_err'][idx], '+.3f')}m  dist={f(d['dist'][idx], '.2f')}m",
+        fill=(220, 220, 220),
+    )
+    ax = "strafe" if phase == "align" else "turn"  # アクティブ軸の PID 内訳
+    dr.text(
+        (tx0, y0 + 46),
+        f"{ax}  P={f(d[ax + '_p'][idx], '+.3f')}  I={f(d[ax + '_i'][idx], '+.3f')}"
+        f"  D={f(d[ax + '_d'][idx], '+.3f')}",
+        fill=(180, 180, 200),
+    )
+    dr.text(
+        (tx0, y0 + 66),
+        f"ff={f(d['fwd_factor'][idx], '.2f')}  "
+        f"yaw_rate={f(d['yaw_rate'][idx], '+.1f')}deg/s  "
+        f"v={f(d['speed_ms'][idx], '.2f')}m/s",
+        fill=(180, 200, 180),
+    )
     return np.asarray(img)
 
 
@@ -260,14 +384,18 @@ def sorted_box(x0, x1, y0, y1):
 
 # ---- main ---------------------------------------------------------------
 def main() -> None:
-    p = argparse.ArgumentParser(description="シムのフレームCSVを3D+2D並置動画に出力する")
+    p = argparse.ArgumentParser(
+        description="シムのフレームCSVを3D+2D並置動画に出力する"
+    )
     p.add_argument("--csv", required=True, help="フレームCSV")
     p.add_argument("--map", default=None, help="room.npz(省略時は2Dは軌跡のみ)")
     p.add_argument("--out", required=True, help="出力 mp4")
     p.add_argument("--fps", type=int, default=60, help="動画fps(既定60)")
-    p.add_argument("--size", default="960x480", help="動画サイズ WxH")
+    p.add_argument("--size", default="960x540", help="動画サイズ WxH")
     p.add_argument("--speed", type=float, default=1.0, help="再生倍率")
-    p.add_argument("--png-every", type=int, default=0, help="Nフレーム毎にPNGも保存(0=無効)")
+    p.add_argument(
+        "--png-every", type=int, default=0, help="Nフレーム毎にPNGも保存(0=無効)"
+    )
     p.add_argument("--png-dir", default=None, help="PNG出力先(既定: outと同じ場所)")
     args = p.parse_args()
 
@@ -279,7 +407,7 @@ def main() -> None:
     w, h = (int(v) for v in args.size.lower().split("x"))
     w -= w % 2
     h -= h % 2
-    hud_h = 44
+    hud_h = 92
     view_h = h - hud_h
     half_w = w // 2
 
@@ -299,9 +427,25 @@ def main() -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     png_dir = Path(args.png_dir) if args.png_dir else out.parent
     cmd = [
-        ffmpeg, "-y", "-f", "rawvideo", "-pix_fmt", "rgb24",
-        "-s", f"{w}x{h}", "-r", str(args.fps), "-i", "-",
-        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "23", str(out),
+        ffmpeg,
+        "-y",
+        "-f",
+        "rawvideo",
+        "-pix_fmt",
+        "rgb24",
+        "-s",
+        f"{w}x{h}",
+        "-r",
+        str(args.fps),
+        "-i",
+        "-",
+        "-c:v",
+        "libx264",
+        "-pix_fmt",
+        "yuv420p",
+        "-crf",
+        "23",
+        str(out),
     ]
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.DEVNULL)
     assert proc.stdin is not None
@@ -310,8 +454,16 @@ def main() -> None:
             frame = np.empty((h, w, 3), np.uint8)
             if solid is not None:
                 frame[:view_h, :half_w] = render_3d(
-                    solid, grid, d["x"][i], d["z"][i], d["yaw"][i], d["pitch"][i],
-                    d["tx"][i], d["tz"][i], half_w, view_h,
+                    solid,
+                    grid,
+                    d["x"][i],
+                    d["z"][i],
+                    d["yaw"][i],
+                    d["pitch"][i],
+                    d["tx"][i],
+                    d["tz"][i],
+                    half_w,
+                    view_h,
                 )
             else:
                 frame[:view_h, :half_w] = 30
