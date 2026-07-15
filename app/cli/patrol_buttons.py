@@ -241,7 +241,7 @@ def main() -> None:
         "--radius", type=float, default=0.25, help="アバター半径=壁クリアランス[m]"
     )
     parser.add_argument(
-        "--gap-close", type=float, default=0.3, help="軌跡の隙間を塞ぐ距離[m]"
+        "--gap-close", type=float, default=0.6, help="塞ぐ軌跡の隙間の最大幅[m]"
     )
     parser.add_argument(
         "--dry-run",

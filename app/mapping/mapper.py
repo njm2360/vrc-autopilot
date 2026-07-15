@@ -438,7 +438,10 @@ class RoomMapper:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         npz = path.with_suffix(".npz")
-        kind = np.array([_KINDS.index(k) for k in self._kind], dtype=np.int8)
+        # 点の無い末尾セグメント(モード切替やペンアップ直後)の kind は保存しない。
+        # load 側は _cur_seg = seg[-1] で復元するため、点のあるセグメント分だけ書く
+        n_seg = (max(self._seg) + 1) if self._seg else 1
+        kind = np.array([_KINDS.index(k) for k in self._kind[:n_seg]], dtype=np.int8)
         np.savez(
             npz,
             xyz=self.xyz,

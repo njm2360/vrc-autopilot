@@ -4,6 +4,7 @@
 """
 
 import heapq
+import logging
 import math
 from collections import deque
 from dataclasses import dataclass
@@ -17,6 +18,8 @@ from scipy.ndimage import (
 )
 
 from ..mapping.mapper import Bounds, RoomMapper
+
+log = logging.getLogger(__name__)
 
 
 def _dilate(mask: np.ndarray, iters: int, connectivity: int = 8) -> np.ndarray:
@@ -64,9 +67,20 @@ class NavGrid:
         rows, cols = self.free.shape
         return 0 <= row < rows and 0 <= col < cols and bool(self.free[row, col])
 
-    def nearest_free(self, row: int, col: int) -> tuple[int, int] | None:
-        """(row,col) から最も近い歩けるセルを BFS で探す。"""
-        if self.is_free(row, col):
+    def nearest_free(
+        self, row: int, col: int, within: np.ndarray | None = None
+    ) -> tuple[int, int] | None:
+        """(row,col) から最も近い歩けるセルを BFS で探す。
+
+        ``within`` (bool マスク) を渡すと、その中の歩けるセルだけを解とする
+        (例: スタートと同じ連結成分に限定して、壁の裏側の床への吸着を防ぐ)。
+        マスク外のセルは解にはならないが、BFS の波は通り抜ける。
+        """
+
+        def ok(r: int, c: int) -> bool:
+            return bool(self.free[r, c]) and (within is None or bool(within[r, c]))
+
+        if self.is_free(row, col) and ok(row, col):
             return (row, col)
         rows, cols = self.free.shape
         seen = np.zeros_like(self.free, dtype=bool)
@@ -78,7 +92,7 @@ class NavGrid:
                 nr, nc = r + dr, c + dc
                 if 0 <= nr < rows and 0 <= nc < cols and not seen[nr, nc]:
                     seen[nr, nc] = True
-                    if self.free[nr, nc]:
+                    if ok(nr, nc):
                         return (nr, nc)
                     dq.append((nr, nc))
         return None
@@ -89,7 +103,7 @@ class NavGrid:
         mapper: RoomMapper,
         cell: float = 0.1,
         avatar_radius: float = 0.25,
-        gap_close: float = 0.3,
+        gap_close: float = 0.6,
     ) -> "NavGrid":
         """歩行軌跡から歩行可能グリッドを構築する。
 
@@ -98,23 +112,37 @@ class NavGrid:
         ドア越しの移動は記録時に SPACE で一時停止して除外する運用が前提。
 
         1. 軌跡をグリッドに描き込む(=壁)。
-        2. gap_close ぶん膨張して軌跡ループの隙間を塞ぎ、外周から流し込んで外側を判定。
-        3. 外側とすべての壁(軌跡)を avatar_radius ぶん膨張させて塞ぐ(クリアランス確保)。
+        2. 軌跡を両側から gap_close/2 ずつ膨張して、幅 gap_close [m] 以下の隙間を
+           塞いだ上で外周から流し込み、外側を判定する(塞ぎは外側判定にのみ使う)。
+        3. 外側と壁(軌跡)から距離 avatar_radius 未満のセルを塞ぐ(クリアランス確保)。
+           セル単位の膨張(切り上げで最大1セル過剰に塞ぐ)ではなく距離変換で等方に
+           判定する。+cell/2 はラスタ化誤差(セル中心と実際の壁線のずれ)の安全余裕。
         4. 残りが歩行可能な床。内壁で仕切られた領域は互いに分断される(実際の壁どおり)。
+
+        外周の軌跡に gap_close より大きい隙間が残っていると外側が室内へ流れ込み、
+        歩行可能セルがゼロになる(警告ログを出す)。その場合は gap_close を上げるか
+        マップを取り直すこと。
         """
-        pad = max(0.5, avatar_radius + gap_close + cell)
+        pad = max(0.5, avatar_radius + gap_close / 2 + cell)
         occ = mapper.occupancy_grid(cell=cell, pad=pad)
         walked = occ.grid
 
-        gap_cells = max(0, math.ceil(gap_close / cell))
+        gap_cells = max(0, math.ceil(gap_close / (2 * cell)))
         sealed = _dilate(walked, gap_cells, connectivity=8)
         exterior = _flood_from_border(~sealed)
 
-        # 外側 + 壁(=軌跡そのもの)の両方に avatar_radius のクリアランスを付けて塞ぐ。
+        # 外側 + 壁(=軌跡そのもの)から avatar_radius 未満に近づくセルを塞ぐ。
         # walked を含めることで内壁・柱などの浮いた壁も障害物になる。
-        radius_cells = max(0, math.ceil(avatar_radius / cell))
-        blocked = _dilate(exterior | walked, radius_cells, connectivity=8)
-        free = ~blocked
+        obstacle = exterior | walked
+        dist_m = distance_transform_edt(~obstacle) * cell
+        free = dist_m >= avatar_radius + 0.5 * cell
+        if not free.any():
+            log.warning(
+                "walkable grid is empty: the wall trace likely has a gap wider "
+                "than gap_close=%.2fm and the exterior flooded the interior. "
+                "Increase gap_close or re-record the map.",
+                gap_close,
+            )
         return cls(free=free, cell=cell, bounds=occ.bounds)
 
 
@@ -259,7 +287,7 @@ class Path:
     waypoints: list[tuple[float, float]]  # XZ [m] の経由点列(start→goal付近)
     length: float  # 総距離 [m]
     reached_goal_cell: tuple[float, float]  # 実際に到達するゴール寄りセルのXZ
-    goal_blocked: bool  # 目標が壁で、最寄り床に迂回したか
+    goal_blocked: bool  # 目標が壁または到達不能な孤立領域で、最寄りの床に迂回したか
 
 
 def plan_path(
@@ -269,15 +297,28 @@ def plan_path(
     *,
     margin: float = 0.3,
     margin_weight: float = 6.0,
+    max_goal_divert: float = 1.0,
 ) -> Path | None:
     """start から goal まで壁を避けた経路を計画する。到達不能なら None。
 
-    goal が歩けないセル(壁面のボタン等)なら、最寄りの歩けるセルまでの経路にする。
+    goal が歩けないセル(壁面のボタン等)や、スタートから到達できない孤立領域の
+    セル(柱の内側など)なら、スタートと同じ連結成分内の最寄りの歩けるセルへ
+    吸着して ``goal_blocked`` を立てる。ただし吸着先が goal から
+    ``max_goal_divert`` [m] より離れる場合は「壁際のずれ」ではなく本当に
+    到達できない目標(仕切られた隣室など)なので None を返す。
+    start / goal がマップ範囲外なら ValueError(グリッド端への暗黙のクランプはしない)。
 
     壁際はソフトコストで避ける: 塞がりセルからの距離が ``margin`` [m] 未満のセルは
     移動コストが最大 (1 + margin_weight) 倍になる(margin=0 で無効)。障害物を
     増やすわけではないので、margin より狭い通路も通れる(遠回りが無ければ通る)。
     """
+    b = grid.bounds
+    for name, (x, z) in (("start", start_xz), ("goal", goal_xz)):
+        if not (b.xmin <= x <= b.xmax and b.zmin <= z <= b.zmax):
+            raise ValueError(
+                f"{name} ({x:.2f}, {z:.2f}) is outside the map bounds "
+                f"x[{b.xmin:.2f}, {b.xmax:.2f}] z[{b.zmin:.2f}, {b.zmax:.2f}]"
+            )
     sc = grid.world_to_cell(*start_xz)
     gc = grid.world_to_cell(*goal_xz)
     if not grid.is_free(*sc):
@@ -285,11 +326,20 @@ def plan_path(
         if nf is None:
             return None
         sc = nf
-    goal_blocked = not grid.is_free(*gc)
+
+    # ゴールはスタートと同じ連結成分(4連結。角抜け禁止A*の到達性と一致)に解決する。
+    # 壁面ボタンのゴールが壁の裏側(隣室・柱の内側)の床へ吸着して「到達不能」と
+    # 誤判定されるのを防ぐ。
+    comp, _ = label(grid.free)
+    start_comp = comp[sc]
+    goal_blocked = not grid.is_free(*gc) or comp[gc] != start_comp
     if goal_blocked:
-        nf = grid.nearest_free(*gc)
+        nf = grid.nearest_free(*gc, within=comp == start_comp)
         if nf is None:
             return None
+        nx, nz = grid.cell_to_world(*nf)
+        if math.hypot(nx - goal_xz[0], nz - goal_xz[1]) > max_goal_divert:
+            return None  # 壁際のずれではなく、到達できない領域の目標
         gc = nf
 
     # 各 free セルから最寄りの塞がりセルまでの距離[セル](塞がりセルは 0)

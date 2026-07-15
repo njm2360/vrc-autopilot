@@ -241,6 +241,25 @@ def test_invalid_mode_raises():
         m.set_mode("wall")
 
 
+def test_save_trims_dangling_trailing_kind(tmp_path):
+    # set_mode で点のあるセグメントをペンアップすると、末尾に点の無い空 inner
+    # セグメントの kind が残る(_kind が点を持つセグメント数より1多い)。
+    m = RoomMapper(min_move=0.0)
+    _line(m, (0.0, 0.0), (2.0, 0.0))  # outer の壁区間(seg 0)
+    m.set_mode("inner")               # 点があるのでペンアップ → 空の inner を作る
+    assert m.num_segments == 1                       # 点のあるセグメントは1つ
+    assert len(m._kind) == m.num_segments + 1        # 末尾に宙ぶらりんの kind
+    assert m.segment_kinds() == ["outer"]
+
+    m.save(tmp_path / "room")
+    data = np.load(tmp_path / "room.npz")
+    # 保存された kind は点のあるセグメント分だけ(宙ぶらりんは書かない)
+    assert len(data["kind"]) == int(data["seg"].max()) + 1
+
+    loaded = RoomMapper.load(tmp_path / "room")
+    assert loaded.segment_kinds() == m.segment_kinds()   # 往復で不変
+
+
 def test_kinds_survive_save_load(tmp_path):
     m = RoomMapper(min_move=0.0)
     for x, z in rectangle_path(4.0, 6.0):
