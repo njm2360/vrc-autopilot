@@ -21,7 +21,7 @@ def _parse_targets(args) -> list[Target]:
     for i, spec in enumerate(args.target or []):
         parts = [float(v) for v in spec.split(",")]
         if len(parts) != 4:
-            raise SystemExit(f"--target は 'x,y,z,face_yaw' 形式で: {spec!r}")
+            raise SystemExit(f"--target must be 'x,y,z,face_yaw': {spec!r}")
         targets.append((f"t{i + 1}", (parts[0], parts[2]), parts[1], parts[3]))
     return targets
 
@@ -307,7 +307,7 @@ def main() -> None:
 
     targets = _parse_targets(args)
     if not targets:
-        parser.error("--target x,y,z を1つ以上指定してください")
+        parser.error("need at least one --target x,y,z,face_yaw")
 
     p0 = mapper.points[0]
     start = (float(p0[0]), float(p0[1]))
@@ -316,9 +316,9 @@ def main() -> None:
     print(f"\nplan from {tuple(round(v, 2) for v in start)}:")
     for name, tgt, path in legs:
         if path is None:
-            print(f"  {name} {tgt}: 到達不能")
+            print(f"  {name} {tgt}: unreachable")
         else:
-            note = " (壁→最寄り床)" if path.goal_blocked else ""
+            note = " (goal on wall -> nearest floor)" if path.goal_blocked else ""
             print(f"  {name} {tgt}: {len(path.waypoints)}wp / {path.length:.2f}m{note}")
 
     if args.dry_run:

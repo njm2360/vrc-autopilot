@@ -199,7 +199,7 @@ class _ProbeRecorder:
             ):
                 send(0.0)
                 logger.warning(
-                    "probe %s: HUD stalled %.2fs in guarded seg %d — command cut",
+                    "probe %s: HUD stalled %.2fs in guarded seg %d -- command cut",
                     self.axis,
                     now - self._last_frame,
                     self._seg,

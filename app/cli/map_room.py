@@ -64,11 +64,11 @@ def main() -> None:
         target=_key_thread, args=(pause_evt, stop_evt, cmd_q), daemon=True
     ).start()
     print(
-        "recording...  SPACE=一時停止/再開  o=外周  i=内壁(穴)  "
-        "z=巻き戻し  r=区間やり直し  q=保存して終了"
+        "recording...  SPACE=pause/resume  o=outer  i=inner(hole)  "
+        "z=rewind  r=redo segment  q=save and quit"
     )
     if live.headless:
-        print("  (ライブ地図を表示できる GUI が無いためテキスト表示のみ)")
+        print("  (no GUI available for the live map; text output only)")
 
     last_t = None
     last_report = time.monotonic()
@@ -91,10 +91,10 @@ def main() -> None:
                     mapper.set_mode("inner")
                 elif cmd == "rewind":
                     n = mapper.rewind(REWIND_DIST)
-                    print(f"  rewind: {n} 点を巻き戻し(壁沿いに歩き直してください)")
+                    print(f"  rewind: dropped {n} pts (walk the wall again)")
                 elif cmd == "redo":
                     n = mapper.redo_segment()
-                    print(f"  redo: 現在セグメントの {n} 点を破棄")
+                    print(f"  redo: discarded {n} pts of the current segment")
 
             pose = reader.get_latest()
             if pose is not None and pose.time_ms != last_t:

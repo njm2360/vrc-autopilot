@@ -53,7 +53,7 @@ class Pilot:
             applied = world_cal.apply(self.gains)
             self.gains = applied.gains
             logger.info(
-                "world_cal 適用: 速度倍率 forward x%.2f / strafe x%.2f",
+                "world_cal applied: speed scale forward x%.2f / strafe x%.2f",
                 applied.s_forward,
                 applied.s_strafe,
             )
@@ -108,25 +108,27 @@ class Pilot:
             if self.reader.get_latest() is not None:
                 return True
             time.sleep(0.1)
-        logger.warning("HUD が %.0f 秒読めません(VRChat 起動中? HUD_Enable?)", timeout)
+        logger.warning(
+            "no HUD for %.0fs (VRChat running? HUD_Enable=true? wrong window?)", timeout
+        )
         return False
 
     def goto(self, xz: tuple[float, float], *, name: str = "goto") -> NavResult:
         pose = self.reader.get_latest()
         if pose is None:
-            logger.warning("[%s] 現在位置が取れません(HUD?)", name)
+            logger.warning("[%s] no current pose (HUD?)", name)
             return NavResult(False, False, "no_pose", None, 0.0, 0)
         start = (pose.position[0], pose.position[2])
         path = plan_path(self.grid, start, xz)
         if path is None:
-            logger.warning("[%s] 経路なし(到達不能)", name)
+            logger.warning("[%s] no path (unreachable)", name)
             return NavResult(False, False, "unreachable", None, 0.0, 0)
         logger.info(
-            "[%s] 経路 %d点 / %.1fm%s",
+            "[%s] path %dwp / %.1fm%s",
             name,
             len(path.waypoints),
             path.length,
-            "(壁面→最寄り床へ)" if path.goal_blocked else "",
+            " (goal on wall -> nearest floor)" if path.goal_blocked else "",
         )
         res = follow_path(
             self.reader,
@@ -148,19 +150,19 @@ class Pilot:
         """
         pose = self.reader.get_latest()
         if pose is None:
-            logger.warning("[%s] 現在位置が取れません(HUD?)", name)
+            logger.warning("[%s] no current pose (HUD?)", name)
             return NavResult(False, False, "no_pose", None, 0.0, 0)
         start = (pose.position[0], pose.position[2])
         path = plan_path(self.grid, start, xz)
         if path is None:
-            logger.warning("[%s] 経路なし(到達不能)", name)
+            logger.warning("[%s] no path (unreachable)", name)
             return NavResult(False, False, "unreachable", None, 0.0, 0)
         logger.info(
-            "[%s] 経路 %d点 / %.1fm (視点固定)%s",
+            "[%s] path %dwp / %.1fm (view locked)%s",
             name,
             len(path.waypoints),
             path.length,
-            "(壁面→最寄り床へ)" if path.goal_blocked else "",
+            " (goal on wall -> nearest floor)" if path.goal_blocked else "",
         )
         res = follow_path_hold_view(
             self.reader,

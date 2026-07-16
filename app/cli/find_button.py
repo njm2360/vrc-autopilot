@@ -18,7 +18,7 @@ def main() -> None:
             if ch in (" ", "\r", "\n"):
                 pose = reader.get_latest()
                 if pose is None or reader.get_stats().consecutive_fail > 5:
-                    print("  [skip] Can not read HUD")
+                    print("  [skip] cannot read HUD")
                     continue
                 sightings.append(Sighting.from_pose(pose))
                 if len(sightings) < 2:
@@ -26,7 +26,7 @@ def main() -> None:
                     continue
                 res = triangulate(sightings)
                 x, y, z = res.point
-                warn = "" if res.well_conditioned else "  [warn] レイがほぼ平行"
+                warn = "" if res.well_conditioned else "  [warn] rays nearly parallel"
                 print(
                     f"  ({x:+.3f}, {y:+.3f}, {z:+.3f}) m  "
                     f"residual={res.residual_rms * 100:.1f}cm  n={res.n}{warn}"

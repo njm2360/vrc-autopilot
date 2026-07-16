@@ -11,13 +11,13 @@ from app.sysid.worldcal import REF_SPEED, WorldCalibration, run_world_calibratio
 
 def _print_result(cal: WorldCalibration) -> None:
     for axis, est in cal.axes.items():
-        bad = "" if est.usable else f"  [補正不能: {est.reason}]"
+        bad = "" if est.usable else f"  [unusable: {est.reason}]"
         print(
             f"  {axis:8s} x{est.scale:.3f}  {REF_SPEED[axis] * est.scale:.2f} m/s  "
             f"deadtime {est.deadtime_s * 1000:.0f}ms{bad}"
         )
     for w in cal.warnings:
-        print(f"  [警告] {w}")
+        print(f"  [warn] {w}")
 
 
 def main() -> None:
@@ -54,11 +54,13 @@ def main() -> None:
         deadline = time.monotonic() + 10.0
         while reader.get_latest() is None:
             if time.monotonic() > deadline:
-                raise SystemExit("HUD が読めません(VRChat 起動中? HUD_Enable?)")
+                raise SystemExit(
+                    "cannot read HUD (VRChat running? HUD_Enable=true? wrong window?)"
+                )
             time.sleep(0.1)
         print(
-            f"[注意] 前後/左右に ±{args.max_travel:.1f}m ほど動きます"
-            f"(向いている方向基準)。{args.start_delay:.0f} 秒後に開始..."
+            f"[warn] will travel about ±{args.max_travel:.1f}m forward/back and "
+            f"left/right (relative to facing). starting in {args.start_delay:.0f}s..."
         )
         time.sleep(args.start_delay)
         cal = run_world_calibration(
@@ -96,7 +98,7 @@ def main() -> None:
         for n in applied.notes:
             print(f"  [note] {n}")
     except ValueError as e:
-        print(f"  [補正不能] {e}")
+        print(f"  [unusable] {e}")
 
 
 if __name__ == "__main__":

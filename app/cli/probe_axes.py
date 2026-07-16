@@ -35,7 +35,7 @@ MOVE_LEVELS = LOOK_LEVELS
 def _parse_levels(spec: str) -> list[float]:
     levels = [float(v) for v in spec.split(",") if v.strip()]
     if not levels or any(not 0.0 < v <= 1.0 for v in levels):
-        raise SystemExit(f"レベルは 0<v<=1 のCSVで: {spec!r}")
+        raise SystemExit(f"levels must be a CSV of 0<v<=1: {spec!r}")
     return levels
 
 
@@ -100,7 +100,7 @@ def _identify_and_save(
             continue
         try:
             by_axis[axis] = load_run(out_dir, axis)
-            print(f"  [reuse] {axis}: 既存の生ログ")
+            print(f"  [reuse] {axis}: existing raw log")
         except FileNotFoundError:
             pass
     runs = [by_axis[a] for a in AXES if a in by_axis]
@@ -139,18 +139,20 @@ def _run_live(axes: list[str], out_dir: Path, args) -> list[ProbeRun]:
         deadline = time.monotonic() + 10.0
         while reader.get_latest() is None:
             if time.monotonic() > deadline:
-                raise SystemExit("HUD が読めません(VRChat 起動中? HUD_Enable?)")
+                raise SystemExit(
+                    "cannot read HUD (VRChat running? HUD_Enable=true? wrong window?)"
+                )
             time.sleep(0.1)
         total = sum(_axis_duration_cap(a, args) for a in axes)
-        print(f"axes: {', '.join(axes)}  合計 ~{total:.0f}s 以内")
+        print(f"axes: {', '.join(axes)}  ~{total:.0f}s max")
         if any(a in ("forward", "strafe") for a in axes):
             print(
-                f"[注意] 移動軸は前後/左右に ±{args.max_travel:.1f}m ほど動きます"
-                "(向いている方向基準)。"
+                f"[warn] move axes travel about ±{args.max_travel:.1f}m "
+                "forward/back and left/right (relative to facing)."
             )
         if "pitch" in axes:
-            print(f"[注意] pitch は現在の視線から ±{args.pitch_span:.0f}° 振ります。")
-        print(f"{args.start_delay:.0f} 秒後に開始...")
+            print(f"[warn] pitch sweeps ±{args.pitch_span:.0f}° from the current view.")
+        print(f"starting in {args.start_delay:.0f}s...")
         time.sleep(args.start_delay)
         for axis in axes:
             send = lambda v, name=AXIS_INPUT[axis]: osc.axis(name, v)
@@ -180,12 +182,15 @@ def _run_live(axes: list[str], out_dir: Path, args) -> list[ProbeRun]:
                         passes=args.passes,
                     )
             except KeyboardInterrupt:
-                print(f"\n[中断] {axis} の記録は捨て、完了済みの軸だけで同定します")
+                print(
+                    f"\n[abort] dropping the {axis} recording; "
+                    "identifying from the completed axes only"
+                )
                 break
             osc.stop()
             paths = save_run(run, out_dir)
             print(
-                f"  {axis} 完了 ({time.monotonic() - t_start:.0f}s): "
+                f"  {axis} done ({time.monotonic() - t_start:.0f}s): "
                 f"{len(run.samples)} samples -> {paths[0]}"
             )
             runs.append(run)
@@ -259,7 +264,7 @@ def main() -> None:
     axes = [a.strip() for a in args.axes.split(",") if a.strip()]
     for a in axes:
         if a not in AXES:
-            parser.error(f"未知の軸: {a}(choices: {', '.join(AXES)})")
+            parser.error(f"unknown axis: {a} (choices: {', '.join(AXES)})")
 
     if args.from_log:
         src = Path(args.from_log)
@@ -270,9 +275,9 @@ def main() -> None:
             try:
                 runs.append(load_run(src, axis))
             except FileNotFoundError:
-                print(f"  [skip] {axis}: 記録なし")
+                print(f"  [skip] {axis}: no recording")
         if not runs:
-            raise SystemExit(f"{src} に生ログ(probe_*.csv)が見つかりません")
+            raise SystemExit(f"no raw logs (probe_*.csv) found in {src}")
         _identify_and_save(runs, out_dir, source="from-log", plot=not args.no_plot)
         return
 
@@ -282,7 +287,7 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     runs = _run_live(axes, out_dir, args)
     if not runs and not any(out_dir.glob("probe_*.csv")):
-        raise SystemExit("完了した軸がないため plant.json は作りません")
+        raise SystemExit("no axis completed; not writing plant.json")
     _identify_and_save(runs, out_dir, source="probe", plot=not args.no_plot)
 
 
