@@ -15,13 +15,12 @@ import dataclasses
 from pathlib import Path
 
 from app.cli._logging import setup_logging
-from app.cli._ctl_log import ControlLog
+from app.control.telemetry import ControlLog, ListRecorder
 from app.cli.patrol_buttons import _add_gain_args
 from app.control.controller import PatrolGains, face_controllers
 from app.control.maneuvers import turn_to
 from app.sysid.simplant import SimClock, SimulatedVRChat
 from app.sysid.identify import PlantModel
-from app.control.telemetry import ListRecorder
 
 
 def main() -> None:

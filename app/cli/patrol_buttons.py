@@ -5,8 +5,9 @@ from datetime import datetime
 from pathlib import Path
 
 from app.cli._logging import setup_logging
-from app.cli._ctl_log import ControlLog
+from app.control.actuator import MouseLookActuator
 from app.control.controller import PatrolGains
+from app.control.telemetry import ControlLog
 from app.mapping.mapper import RoomMapper
 from app.spatial.navigation import NavGrid, plan_path
 from app.control.pilot import Pilot
@@ -93,14 +94,14 @@ def _run_live(grid, targets, args, gains: PatrolGains) -> None:
     log = ControlLog(log_path)
     print(f"control log: {log_path}")
 
-    pilot = Pilot.connect(
-        grid,
-        gains=gains,
-        look=args.look,
-        mouse_yaw_gain=args.mouse_yaw_gain,
-        mouse_pitch_gain=args.mouse_pitch_gain,
-        recorder=log,
+    look = (
+        MouseLookActuator(
+            yaw_gain=args.mouse_yaw_gain, pitch_gain=args.mouse_pitch_gain
+        )
+        if args.look == "mouse"
+        else None  # 省略時は OSC
     )
+    pilot = Pilot.connect(grid, gains=gains, look=look, recorder=log)
     print(f"look={args.look}  waiting for HUD...")
     pilot.wait_for_hud()
     try:

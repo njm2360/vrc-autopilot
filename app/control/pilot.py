@@ -3,7 +3,7 @@ import math
 import time
 from typing import Iterable
 
-from .actuator import LookActuator, MouseLookActuator, MoveActuator
+from .actuator import LookActuator, MoveActuator
 from .controller import (
     PatrolGains,
     face_controllers,
@@ -59,28 +59,24 @@ class Pilot:
         grid: NavGrid,
         *,
         gains: PatrolGains | None = None,
-        look: str = "osc",
-        mouse_yaw_gain: float = 40.0,
-        mouse_pitch_gain: float = 40.0,
+        look: LookActuator | None = None,
         recorder: Recorder | None = None,
     ) -> "Pilot":
-        """実機 I/O(キャプチャ+OSC)を組んだ Pilot を作る(注入版は __init__)。"""
+        """実機 I/O(キャプチャ+OSC)を組んだ Pilot を作る(注入版は __init__)。
+
+        look を渡すと視点だけ差し替えられる(例: MouseLookActuator)。省略時は OSC。
+        """
         from ..perception.capture import WindowsVRChatCapture
         from .osc import VRChatOSC
         from ..perception.reader import PoseReader
 
         reader = PoseReader(source=WindowsVRChatCapture()).start()
         osc = VRChatOSC()
-        look_act: LookActuator = (
-            osc
-            if look == "osc"
-            else MouseLookActuator(yaw_gain=mouse_yaw_gain, pitch_gain=mouse_pitch_gain)
-        )
         osc.hud_enable(True)
         return cls(
             grid,
             reader,
-            look_act,
+            look or osc,
             osc,
             gains=gains,
             recorder=recorder,

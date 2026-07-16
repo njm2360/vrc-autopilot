@@ -5,6 +5,7 @@ Recorder はフレームごとの行の記録先(CSV 等)の抽象。AxisAccumul
 にまとめる。制御ループからは独立した純粋な計算で、recorder を付けたときだけ走る。
 """
 
+import csv
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -26,6 +27,62 @@ class ListRecorder:
 
     def row(self, **kw) -> None:
         self.rows.append(kw)
+
+
+class ControlLog:
+    """行を CSV に書き出す Recorder(実機ログ・sim-video の入力)。列は FIELDS 固定。"""
+
+    FIELDS = [
+        "t",  # 開始からの経過秒
+        "phase",  # nav / move / face / turn / align
+        "target",  # ターゲット名
+        "wp",  # 追従中のウェイポイント番号(nav/moveのみ)
+        "dt",  # 前フレームからの実経過秒
+        "x",
+        "y",
+        "z",
+        "yaw",
+        "pitch",
+        "tx",
+        "ty",
+        "tz",
+        "dist",  # ターゲットまでの水平距離[m]
+        "yaw_err",
+        "pitch_err",
+        "lat_err",  # 横方向誤差[m](alignのみ。+なら目標が右)
+        "fwd_err",  # 目標までの前方距離[m](moveのみ)
+        "right_err",  # 目標までの右方距離[m](moveのみ)
+        "turn_p",
+        "turn_i",
+        "turn_d",
+        "turn",  # yaw(LookHorizontal)PID内訳と出力
+        "pitch_p",
+        "pitch_i",
+        "pitch_d",
+        "pitch_cmd",
+        "strafe_p",
+        "strafe_i",
+        "strafe_d",
+        "strafe",  # Horizontal(横移動)PID内訳と出力(alignのみ)
+        "fwd",  # Vertical(前進)出力
+        "fwd_factor",  # 向きズレによる前進減衰係数
+    ]
+
+    def __init__(self, path):
+        self.path = path
+        self._f = open(path, "w", newline="", encoding="utf-8")
+        self._w = csv.DictWriter(self._f, fieldnames=self.FIELDS, extrasaction="ignore")
+        self._w.writeheader()
+
+    def row(self, **kw) -> None:
+        self._w.writerow({k: kw.get(k, "") for k in self.FIELDS})
+        self._f.flush()
+
+    def close(self) -> None:
+        try:
+            self._f.close()
+        except Exception:
+            pass
 
 
 @dataclass
