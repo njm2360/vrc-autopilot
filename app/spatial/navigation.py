@@ -12,6 +12,8 @@ from dataclasses import dataclass
 import numpy as np
 from scipy.ndimage import (
     binary_dilation,
+    binary_erosion,
+    binary_fill_holes,
     distance_transform_edt,
     generate_binary_structure,
     label,
@@ -47,6 +49,7 @@ class NavGrid:
     free: np.ndarray
     cell: float
     bounds: Bounds
+    solid: np.ndarray | None = None  # 固体領域(壁軌跡+外部+内壁の内側)。描画用
 
     @property
     def shape(self) -> tuple[int, int]:
@@ -114,10 +117,14 @@ class NavGrid:
         1. 軌跡をグリッドに描き込む(=壁)。
         2. 軌跡を両側から gap_close/2 ずつ膨張して、幅 gap_close [m] 以下の隙間を
            塞いだ上で外周から流し込み、外側を判定する(塞ぎは外側判定にのみ使う)。
-        3. 外側と壁(軌跡)から距離 avatar_radius 未満のセルを塞ぐ(クリアランス確保)。
-           セル単位の膨張(切り上げで最大1セル過剰に塞ぐ)ではなく距離変換で等方に
-           判定する。+cell/2 はラスタ化誤差(セル中心と実際の壁線のずれ)の安全余裕。
-        4. 残りが歩行可能な床。内壁で仕切られた領域は互いに分断される(実際の壁どおり)。
+           flood は膨張ぶん壁の手前で止まるので、壁を跨がない測地膨張で壁面まで
+           戻し広げる(ペンアップ隙間からは gap_close/2 ぶんしか入り込めない)。
+        3. 内壁(inner)が閉ループで囲む領域(柱・間仕切りの中身)を固体に加える。
+        4. 固体(外側+壁+内壁の内側)から距離 avatar_radius 未満のセルを塞ぐ
+           (クリアランス確保)。+cell/2 はラスタ化誤差の安全余裕。
+        5. 残った空間のうち「主床」(最大の free を含む連結成分)だけが部屋。
+           それ以外の閉じた空間(二重壁の隙間・封鎖ポケット)は歩いて入れない=
+           地図化できない領域なので固体に畳む。
 
         外周の軌跡に gap_close より大きい隙間が残っていると外側が室内へ流れ込み、
         歩行可能セルがゼロになる(警告ログを出す)。その場合は gap_close を上げるか
@@ -128,14 +135,40 @@ class NavGrid:
         walked = occ.grid
 
         gap_cells = max(0, math.ceil(gap_close / (2 * cell)))
+        struct = generate_binary_structure(2, 2)
         sealed = _dilate(walked, gap_cells, connectivity=8)
         exterior = _flood_from_border(~sealed)
+        if gap_cells > 0:
+            # flood は膨張カラーぶん壁の手前で止まる。壁(walked)を跨がない
+            # 測地膨張で壁面まで戻し広げる(外側の帯を外部に正しく分類する)
+            exterior = binary_dilation(
+                exterior, structure=struct, iterations=gap_cells, mask=~walked
+            )
 
-        # 外側 + 壁(=軌跡そのもの)から avatar_radius 未満に近づくセルを塞ぐ。
-        # walked を含めることで内壁・柱などの浮いた壁も障害物になる。
-        obstacle = exterior | walked
-        dist_m = distance_transform_edt(~obstacle) * cell
+        # 内壁(inner)が閉ループで囲む領域は固体(柱・間仕切りの中身)。記録の
+        # 閉じ残しを gap_close まで塞いでから穴埋めし、膨張ぶんを戻す。
+        # 閉じていない inner 線(単独の仕切り)は fill_holes で変化しない。
+        inner = mapper.occupancy_grid(cell=cell, pad=pad, kind="inner").grid
+        pockets = binary_fill_holes(_dilate(inner, gap_cells, connectivity=8))
+        if gap_cells > 0:
+            pockets = binary_erosion(pockets, structure=struct, iterations=gap_cells)
+
+        # 固体 = 外側 + 壁(=軌跡そのもの) + 内壁の内側。walked を含めることで
+        # 内壁・柱などの浮いた壁も障害物になる。そこから avatar_radius 未満に
+        # 近づくセルを塞いだ残りが歩行可能な床。
+        solid = exterior | walked | pockets
+        dist_m = distance_transform_edt(~solid) * cell
         free = dist_m >= avatar_radius + 0.5 * cell
+
+        # 主床(最大の free を含む連結成分)以外の空間は、二重壁の隙間や封鎖
+        # ポケット(歩いて入れない=地図化できない領域)なので固体に畳む
+        lbl, n = label(~solid)
+        if n > 1 and free.any():
+            counts = np.bincount(lbl[free], minlength=n + 1)
+            main = int(counts[1:].argmax()) + 1
+            solid |= (lbl != 0) & (lbl != main)
+            free &= lbl == main
+
         if not free.any():
             log.warning(
                 "walkable grid is empty: the wall trace likely has a gap wider "
@@ -143,7 +176,7 @@ class NavGrid:
                 "Increase gap_close or re-record the map.",
                 gap_close,
             )
-        return cls(free=free, cell=cell, bounds=occ.bounds)
+        return cls(free=free, cell=cell, bounds=occ.bounds, solid=solid)
 
 
 def _astar(

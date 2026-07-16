@@ -30,6 +30,10 @@ FLOOR = np.array([76, 70, 60], np.uint8)
 WALL = np.array([170, 150, 120], np.float64)
 TARGET_COLOR = (255, 80, 40)
 
+WALL_2D = (190, 170, 140)
+MARGIN_2D = (58, 44, 48)
+FLOOR_2D = (60, 66, 78)
+
 
 # ---- CSV ---------------------------------------------------------------
 NEED = ["t", "x", "z", "yaw", "pitch"]
@@ -240,12 +244,15 @@ class MapPane:
                 & (ri >= 0)[:, None]
                 & (ri < grid.shape[0])[:, None]
             )
-            free = np.zeros((h, w), bool)
             rr = np.clip(ri, 0, grid.shape[0] - 1)
             cc = np.clip(ci, 0, grid.shape[1] - 1)
             free = grid.free[rr[:, None], cc[None, :]] & ok
-            bg[free] = (60, 66, 78)
-            bg[~free & ok] = (36, 38, 44)
+            bg[ok & ~free] = MARGIN_2D
+            bg[free] = FLOOR_2D
+            if grid.solid is not None:
+                solid = grid.solid[rr[:, None], cc[None, :]] & ok
+                bg[solid] = WALL_2D
+            self._legend(bg)
         # 経路全体(予定線)を薄く
         for px, py in zip(*self.to_px(data["x"], data["z"])):
             bg[max(py, 0) : py + 1, max(px, 0) : px + 1] = (90, 90, 100)
@@ -253,6 +260,20 @@ class MapPane:
         self.trail = np.zeros((h, w), bool)
         self._drawn = 0
         self.data = data
+
+    def _legend(self, bg: np.ndarray) -> None:
+        img = Image.fromarray(bg)
+        dr = ImageDraw.Draw(img)
+        items = ((WALL_2D, "wall"), (MARGIN_2D, "margin"), (FLOOR_2D, "floor"))
+        wsum = sum(14 + 6 * len(label) + 12 for _, label in items)
+        y = self.h - 16
+        dr.rectangle([2, y - 4, 2 + wsum + 6, self.h - 2], fill=(18, 18, 22))
+        x = 6
+        for color, label in items:
+            dr.rectangle([x, y, x + 10, y + 10], fill=color, outline=(120, 120, 120))
+            dr.text((x + 14, y - 1), label, fill=(200, 200, 200))
+            x += 14 + 6 * len(label) + 12
+        bg[:] = np.asarray(img)
 
     def to_px(self, x, z):
         px = np.clip(((np.asarray(x) - self.xmin) * self.s).astype(int), 0, self.w - 1)
@@ -412,9 +433,10 @@ def main() -> None:
     half_w = w // 2
 
     grid = None
+    solid = None
     if args.map:
         grid = NavGrid.from_mapper(RoomMapper.load(args.map))
-    solid = ~grid.free if grid is not None else None
+        solid = grid.solid if grid.solid is not None else ~grid.free
     pane = MapPane(grid, d, half_w, view_h)
 
     t = d["t"]

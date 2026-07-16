@@ -358,10 +358,14 @@ class RoomMapper:
         return float(d[same].sum())
 
     # ---- 占有グリッド --------------------------------------------------
-    def occupancy_grid(self, cell: float = 0.1, pad: float = 0.5) -> OccupancyGrid:
+    def occupancy_grid(
+        self, cell: float = 0.1, pad: float = 0.5, kind: Kind | None = None
+    ) -> OccupancyGrid:
         """経路をセル解像度 ``cell`` [m] のグリッドに描き込んだ占有グリッドを返す。
 
         連続する点の間を線分として等間隔にサンプリングし、通過したセルを True にする。
+        ``kind`` を指定するとその種別(outer/inner)のセグメントだけを描き込む。
+        グリッドの寸法・原点は kind によらず全点の bounds で共通(重ね合わせ可能)。
         """
         b = self.bounds()
         if b is None:
@@ -371,29 +375,36 @@ class RoomMapper:
         rows = max(1, int(np.ceil(gb.depth / cell)) + 1)
         grid = np.zeros((rows, cols), dtype=bool)
 
-        samples = self._segment_samples(cell)  # (M, 2) XZ [m]
-        ci = ((samples[:, 0] - gb.xmin) / cell).astype(np.intp)
-        ri = ((samples[:, 1] - gb.zmin) / cell).astype(np.intp)
-        np.clip(ci, 0, cols - 1, out=ci)
-        np.clip(ri, 0, rows - 1, out=ri)
-        grid[ri, ci] = True
+        samples = self._segment_samples(cell, kind=kind)  # (M, 2) XZ [m]
+        if len(samples):
+            ci = ((samples[:, 0] - gb.xmin) / cell).astype(np.intp)
+            ri = ((samples[:, 1] - gb.zmin) / cell).astype(np.intp)
+            np.clip(ci, 0, cols - 1, out=ci)
+            np.clip(ri, 0, rows - 1, out=ri)
+            grid[ri, ci] = True
         return OccupancyGrid(grid=grid, cell=cell, bounds=gb)
 
-    def _segment_samples(self, step: float) -> np.ndarray:
+    def _segment_samples(self, step: float, kind: str | None = None) -> np.ndarray:
         """全線分を等間隔サンプルした点列を返す(セグメントごとのループなしでベクトル化)。
 
         セグメント分割(ペンアップ)をまたぐ辺は繋がない。孤立点も落とさないよう、
-        全ての元の点はそのまま含める。
+        全ての元の点はそのまま含める。kind 指定時はその種別のセグメントに限る。
         """
         pts = self.points
-        if len(pts) <= 1:
+        if len(pts) == 0:
             return pts.copy()
         seg = np.asarray(self._seg)
-        same = seg[:-1] == seg[1:]  # 同一セグメント内の辺のみ補間
+        if kind is None:
+            keep = np.ones(len(pts), dtype=bool)
+        else:
+            keep = np.asarray(self._kind, dtype=object)[seg] == kind
+        if len(pts) == 1:
+            return pts[keep].copy()
+        same = (seg[:-1] == seg[1:]) & keep[:-1]  # 同一セグメント内の辺のみ補間
         p0 = pts[:-1][same]
         p1 = pts[1:][same]
         if len(p0) == 0:
-            return pts.copy()
+            return pts[keep].copy()
         seg_len = np.linalg.norm(p1 - p0, axis=1)
         nsteps = np.maximum(1, np.ceil(seg_len / max(step * 0.5, 1e-9)).astype(np.intp))
         total = int(nsteps.sum())
@@ -401,7 +412,7 @@ class RoomMapper:
         start = np.repeat(np.cumsum(nsteps) - nsteps, nsteps)
         frac = (np.arange(total) - start) / np.repeat(nsteps, nsteps)
         interp = p0[edge_id] + (p1[edge_id] - p0[edge_id]) * frac[:, None]
-        return np.concatenate([pts, interp])  # 元の点 + 辺の補間点
+        return np.concatenate([pts[keep], interp])  # 元の点 + 辺の補間点
 
     # ---- 要約 / 保存 ---------------------------------------------------
     def to_dict(self) -> dict:
