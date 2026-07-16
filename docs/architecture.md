@@ -29,7 +29,7 @@ VRChat 画面(HUDビットグリッド)
                           └─ DirectInput: MouseLookActuator ──► 相対マウス(視点のみ)
 ```
 
-制御ループ(patrol)は **アクチュエータ**(look / move)と **制御器**(AxisController)を注入で
+制御ループ(patrol)はアクチュエータ(look / move)と制御器(AxisController)を注入で
 受け取る。視点だけ OSC からマウスに差し替える、といった部品単位の入れ替えができる。HUD 表示切替は
 アクチュエータではなく OSC 固有操作(`VRChatOSC.hud_enable`)。
 
