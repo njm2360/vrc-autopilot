@@ -106,7 +106,11 @@ def test_pose_reader_with_array_source():
     # スレッドを使わず単体で1フレーム処理
     result = reader.process_frame(frame)
     assert result.ok
-    assert reader.get_latest().position == (np.float32(1.0), np.float32(2.0), np.float32(3.0))
+    assert reader.get_latest().position == (
+        np.float32(1.0),
+        np.float32(2.0),
+        np.float32(3.0),
+    )
     assert reader.get_stats().new_frames == 1
 
     # 同一 time_ms は重複としてスキップ

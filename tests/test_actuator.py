@@ -25,34 +25,39 @@ def test_vrchat_osc_satisfies_both_actuator_protocols():
 def test_mouse_look_maps_command_to_relative_pixels():
     calls = []
     act = MouseLookActuator(
-        yaw_gain=100.0, pitch_gain=50.0, invert_pitch=True,
+        yaw_gain=100.0,
+        pitch_gain=50.0,
+        invert_pitch=True,
         move_rel=lambda dx, dy: calls.append((dx, dy)),
     )
-    act.look(turn=0.5, pitch=0.2)          # dx=50, dy=-(0.2*50)=-10(上は画面上=負)
+    act.look(turn=0.5, pitch=0.2)  # dx=50, dy=-(0.2*50)=-10(上は画面上=負)
     assert calls == [(50, -10)]
 
 
 def test_mouse_look_skips_zero_motion():
     calls = []
     act = MouseLookActuator(move_rel=lambda dx, dy: calls.append((dx, dy)))
-    act.look(0.0, 0.0)                     # 丸めて0なら送らない
-    act.look(0.001, 0.0)                   # 0.001*40≈0 → 送らない
+    act.look(0.0, 0.0)  # 丸めて0なら送らない
+    act.look(0.001, 0.0)  # 0.001*40≈0 → 送らない
     assert calls == []
 
 
 def test_mouse_look_pitch_not_inverted():
     calls = []
-    act = MouseLookActuator(pitch_gain=100.0, invert_pitch=False,
-                            move_rel=lambda dx, dy: calls.append((dx, dy)))
+    act = MouseLookActuator(
+        pitch_gain=100.0,
+        invert_pitch=False,
+        move_rel=lambda dx, dy: calls.append((dx, dy)),
+    )
     act.look(0.0, 0.3)
     assert calls == [(0, 30)]
 
 
 def test_axis_controller_gates_within_tol():
     ctl = AxisController(PID(kp=1.0), tol=2.0)
-    assert ctl.update(1.0, 0.1) == 0.0     # |1|<2 → 指令0(PIDは進めない)
-    out = ctl.update(5.0, 0.1)             # |5|>2 → 通常 PID
-    assert out == pytest.approx(1.0)       # kp*5 クランプ
+    assert ctl.update(1.0, 0.1) == 0.0  # |1|<2 → 指令0(PIDは進めない)
+    out = ctl.update(5.0, 0.1)  # |5|>2 → 通常 PID
+    assert out == pytest.approx(1.0)  # kp*5 クランプ
 
 
 def test_axis_controller_passes_through_pid_logging():

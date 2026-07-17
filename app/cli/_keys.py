@@ -4,7 +4,7 @@ def key_events():
 
         while True:
             ch = msvcrt.getwch()
-            if ch in ("\x00", "\xe0"):   # 特殊キーの先行バイトは読み捨て
+            if ch in ("\x00", "\xe0"):  # 特殊キーの先行バイトは読み捨て
                 msvcrt.getwch()
                 continue
             yield ch

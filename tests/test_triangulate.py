@@ -96,10 +96,12 @@ def test_zero_direction_rejected():
 
 
 def test_result_to_dict():
-    res = triangulate([
-        Sighting(origin=(0, 0, 0), direction=(0, 0, 1)),
-        Sighting(origin=(1, 0, 0), direction=(0, 0, 1)),
-    ])
+    res = triangulate(
+        [
+            Sighting(origin=(0, 0, 0), direction=(0, 0, 1)),
+            Sighting(origin=(1, 0, 0), direction=(0, 0, 1)),
+        ]
+    )
     d = res.to_dict()
     assert set(d) >= {"point", "residual_rms_m", "n", "well_conditioned"}
     assert set(d["point"]) == {"x", "y", "z"}
