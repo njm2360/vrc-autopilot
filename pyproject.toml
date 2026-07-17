@@ -5,11 +5,11 @@ description = "VRChat PoseTelemetryHUD 6DoF decoder + OSC feedback control"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
-    "numpy>=2.1",
-    "scipy>=1.13",
-    "mss>=9.0",
-    "python-osc>=1.9",
-    "matplotlib>=3.8",
+    "numpy>=2.5",
+    "scipy>=1.18",
+    "mss>=10.2",
+    "python-osc>=1.10",
+    "matplotlib>=3.11",
     "pydirectinput>=1.0.4",
 ]
 
@@ -24,7 +24,7 @@ sim-face = "app.cli.sim_face:main"
 sim-video = "app.cli.sim_video:main"
 
 [dependency-groups]
-dev = ["pytest>=8.0"]
+dev = ["pytest>=9.1", "black>=26.5"]
 
 [build-system]
 requires = ["hatchling"]
@@ -35,3 +35,6 @@ packages = ["app"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.black]
+target-version = ["py314"]
