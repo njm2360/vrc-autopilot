@@ -88,7 +88,7 @@ class PatrolGains:
     nav_lookahead: float = 1.2  # 経路先読み(carrot)の弧長[m]。狭所は 0.8 程度に
     standoff: float = 1.0  # ボタン正面で止まる距離[m](Use到達距離内に収める)
     # ---- 収束判定・打切り ----
-    face_tol: float = 2.0  # 正対(粗合わせ)とみなす角度[deg]
+    face_tol: float = 0.2  # 正対とみなす角度[deg]。そのまま最終照準の精度になる
     settle_frames: int = 3  # 収束判定に必要な連続フレーム数(face / align 共通)
     nav_timeout: float = 60.0  # 移動の打切り秒
     face_timeout: float = 12.0  # 正対の打切り秒
@@ -120,7 +120,7 @@ class PatrolGains:
     pitch_ilim: float = 0.5
     pitch_deadzone: float = 0.10
     # ---- 最終照準(align): 視点は回さず横移動で詰める ----
-    align_tol: float = 0.02  # 横ずれの収束閾値[m]。0で align 無効
+    align_tol: float = 0.005  # 横ずれの収束閾値[m]。0で align 無効
     align_timeout: float = 8.0  # 打切り秒
     align_stuck_time: float = 1.0  # 動けないままこの秒数経過で打切り(壁に阻まれた時)
     align_stuck_eps: float = 0.02  # 動けないとみなす移動距離[m]

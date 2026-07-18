@@ -3,8 +3,7 @@
 PlantModel(静特性+むだ時間+dt 列)を積分して 6DoF ポーズを生成する。
 PoseSource / LookActuator / MoveActuator を満たすので、maneuvers の制御ループへ
 そのまま注入できる。start_realtime() で実時間駆動、テストや高速な探索では
-step() を手動で呼ぶ。モデル化は静特性・むだ時間・フレーム間隔のみで、視点軸の
-平滑化(ランプ)・衝突・デコードノイズは含まない。
+step() を手動で呼ぶ。モデル化は静特性・むだ時間・フレーム間隔のみ
 """
 
 import itertools
