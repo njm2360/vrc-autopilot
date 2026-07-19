@@ -2,6 +2,10 @@
 
 [VRCPositionHUD](https://github.com/njm2360/vrc-position-hud)を利用してOSCで移動・視点を操作する自動化ツール
 
+> [!WARNING]
+> 本ツールの使用によって生じたいかなる結果についても、作者は一切の責任を負いません。自己責任で使用してください。
+> 使用にあたっては各ワールド・コミュニティのルールに従ってください。自動化を歓迎しない場所では使わないこと。
+
 - 全体像とモジュール対応: [docs/architecture.md](docs/architecture.md)
 - プラント特性の測定手順: [docs/system-identification.md](docs/system-identification.md)
 - 制御ゲインの根拠と調整手順: [docs/gain-tuning.md](docs/gain-tuning.md)
