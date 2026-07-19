@@ -8,6 +8,7 @@
 
 import logging
 import math
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -123,7 +124,7 @@ def _next_frame(
 class NavResult:
     path_found: bool  # 経路が見つかった(到達可能)
     arrived: bool  # 最終ウェイポイント付近まで到達した
-    reason: str  # "arrived" | "unreachable" | "no_pose" | "hud_lost" | "timeout"
+    reason: str  # "arrived" | "unreachable" | "no_pose" | "hud_lost" | "timeout" | "cancelled"
     path: Path | None  # follow() 直接指定時は None
     elapsed: float  # [s]
     frames: int
@@ -142,7 +143,9 @@ class AimResult:
     yaw: AxisMetrics | None = None
     pitch: AxisMetrics | None = None  # pitch 未制御時は None
     lat: AxisMetrics | None = None  # 横ずれ[m]の応答指標(strafe_align のみ)
-    reason: str = ""  # "converged" | "timeout" | "hud_lost" | "stuck"(align のみ)
+    reason: str = (
+        ""  # "converged" | "timeout" | "hud_lost" | "cancelled" | "stuck"(align のみ)
+    )
 
 
 def follow_path(
@@ -155,6 +158,7 @@ def follow_path(
     *,
     clock: Clock = time,
     recorder: Recorder | None = None,
+    cancel: threading.Event | None = None,
     name: str = "",
 ) -> NavResult:
     rec = recorder or NullRecorder()
@@ -175,6 +179,10 @@ def follow_path(
     yaw_acc = AxisAccumulator() if track else None
     try:
         while True:
+            if cancel is not None and cancel.is_set():
+                reason = "cancelled"
+                logger.info("[%s] nav cancelled", name)
+                break
             pose, dt, now = _next_frame(reader, last_t, last_time, clock=clock)
             if pose is None:
                 reason = "hud_lost"
@@ -262,6 +270,7 @@ def follow_path_translate(
     *,
     clock: Clock = time,
     recorder: Recorder | None = None,
+    cancel: threading.Event | None = None,
     name: str = "",
 ) -> NavResult:
     rec = recorder or NullRecorder()
@@ -279,6 +288,10 @@ def follow_path_translate(
     reason = "arrived"
     try:
         while idx < len(wps):
+            if cancel is not None and cancel.is_set():
+                reason = "cancelled"
+                logger.info("[%s] translate cancelled", name)
+                break
             pose, dt, now = _next_frame(reader, last_t, last_time, clock=clock)
             if pose is None:
                 reason = "hud_lost"
@@ -372,6 +385,7 @@ def _face_loop(
     extra: dict[str, float],
     clock: Clock,
     recorder: Recorder | None,
+    cancel: threading.Event | None,
     name: str,
 ) -> AimResult:
     """正対系ループの共通コア。errors(pose) が (yaw誤差, pitch誤差)[deg] を返す。
@@ -394,6 +408,9 @@ def _face_loop(
     pitch_acc = AxisAccumulator() if (track and control_pitch) else None
     try:
         while clock.monotonic() - t0 < gains.face_timeout:
+            if cancel is not None and cancel.is_set():
+                reason = "cancelled"
+                break
             pose, dt, now = _next_frame(reader, last_t, last_time, clock=clock)
             if pose is None:
                 reason = "hud_lost"
@@ -479,6 +496,7 @@ def strafe_align(
     *,
     clock: Clock = time,
     recorder: Recorder | None = None,
+    cancel: threading.Event | None = None,
     name: str = "",
 ) -> AimResult:
     """最終照準: 視点(yaw)は回さず、体の横移動で誤差を潰す。
@@ -512,6 +530,9 @@ def strafe_align(
     win_commanded = False
     try:
         while clock.monotonic() - t0 < gains.align_timeout:
+            if cancel is not None and cancel.is_set():
+                reason = "cancelled"
+                break
             pose, dt, now = _next_frame(reader, last_t, last_time, clock=clock)
             if pose is None:
                 reason = "hud_lost"
@@ -614,6 +635,7 @@ def aim_at(
     *,
     clock: Clock = time,
     recorder: Recorder | None = None,
+    cancel: threading.Event | None = None,
     name: str = "",
 ) -> AimResult:
     tgt_xz = (target_xyz[0], target_xyz[2])
@@ -634,6 +656,7 @@ def aim_at(
         extra={"tx": target_xyz[0], "ty": target_xyz[1], "tz": target_xyz[2]},
         clock=clock,
         recorder=recorder,
+        cancel=cancel,
         name=name,
     )
 
@@ -648,6 +671,7 @@ def turn_to(
     pitch_deg: float | None = None,
     clock: Clock = time,
     recorder: Recorder | None = None,
+    cancel: threading.Event | None = None,
     name: str = "",
 ) -> AimResult:
     def errors(pose: Pose) -> tuple[float, float]:
@@ -665,5 +689,6 @@ def turn_to(
         extra={},
         clock=clock,
         recorder=recorder,
+        cancel=cancel,
         name=name,
     )

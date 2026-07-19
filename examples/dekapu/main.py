@@ -1,12 +1,10 @@
 import logging
-import math
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from typing import NamedTuple
 
 from app.control.maneuvers import NavResult
-from app.control.osc import VRChatOSC
 from app.control.pilot import Pilot
 from app.control.recording import ControlLog
 from app.mapping.mapper import RoomMapper
@@ -38,13 +36,7 @@ MEMORIAL_YAW = 45.0
 
 
 def build_route(pilot: Pilot) -> list[Stop]:
-    def standoff(
-        xyz: tuple[float, float, float], face_yaw: float
-    ) -> tuple[float, float]:
-        r = math.radians(face_yaw)
-        d = pilot.gains.standoff
-        return (xyz[0] + math.sin(r) * d, xyz[2] + math.cos(r) * d)
-
+    standoff = pilot.standoff_point
     return [
         Stop("オート購入", pilot.goto, SPOT_AUTO_BUY, [BTN_AUTOPLAY, BTN_RLT_FAST]),
         Stop("ルレx25", pilot.goto, standoff(BTN_RLT_X25[1], X25_YAW), [BTN_RLT_X25]),
@@ -73,32 +65,22 @@ def build_route(pilot: Pilot) -> list[Stop]:
     ]
 
 
-def press(
-    pilot: Pilot, interact: VRChatOSC, name: str, xyz: tuple[float, float, float]
-) -> str:
-    aim = pilot.aim(xyz, name=name)
-    if pilot.gains.align_tol > 0.0:
-        aim = pilot.align(xyz, name=name)
-    if not aim.converged:
-        return f"skipped ({aim.reason})"
-    interact.click()
-    return "clicked"
-
-
 def main() -> None:
     grid = NavGrid.from_mapper(RoomMapper.load(MAP))
     log_path = Path(f"logs/buttons_{datetime.now():%Y%m%d_%H%M%S}.csv")
     log = ControlLog(log_path)
     skipped = 0
     try:
-        interact = VRChatOSC()
         with Pilot.connect(grid, recorder=log) as pilot:
-            pilot.wait_for_hud()
+            pilot.wait_until_hud()
             for stop in build_route(pilot):
                 nav = stop.move(stop.goal, name=stop.name)
                 for name, xyz in stop.buttons:
                     if nav.arrived:
-                        outcome = press(pilot, interact, name, xyz)
+                        res = pilot.click_at(xyz, name=name)
+                        outcome = (
+                            "clicked" if res.clicked else f"skipped ({res.reason})"
+                        )
                     else:
                         outcome = f"skipped ({nav.reason})"
                     skipped += outcome != "clicked"

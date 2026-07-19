@@ -105,11 +105,11 @@ def _run_live(grid, targets, args, gains: PatrolGains) -> None:
         grid, gains=gains, world_cal=args.world_cal, look=look, recorder=log
     )
     print(f"look={args.look}  waiting for HUD...")
-    pilot.wait_for_hud()
+    pilot.wait_until_hud()
     try:
         for name, tgt_xz, tgt_y, face_yaw in targets:
             print(f"-> {name} {tgt_xz} y={tgt_y} face_yaw={face_yaw:g}")
-            pilot.visit((tgt_xz[0], tgt_y, tgt_xz[1]), face_yaw, name=name)
+            pilot.approach((tgt_xz[0], tgt_y, tgt_xz[1]), face_yaw, name=name)
         print("patrol done.")
     except KeyboardInterrupt:
         print("\ninterrupted.")

@@ -67,6 +67,19 @@ def aim_angle(
     return math.degrees(math.acos(cos))
 
 
+def standoff_point(
+    xyz: tuple[float, float, float], face_yaw_deg: float, dist: float
+) -> tuple[float, float]:
+    """目標の正面 dist [m] に立つ位置の XZ。face_yaw_deg は目標面の法線方向(+Z基準)。
+
+    dist<=0 なら目標の直下 XZ。現在地には依存しない(壁裏への回り込みを防ぐ)。
+    """
+    if dist <= 0.0:
+        return (xyz[0], xyz[2])
+    y = math.radians(face_yaw_deg)
+    return (xyz[0] + math.sin(y) * dist, xyz[2] + math.cos(y) * dist)
+
+
 def forward_factor(yaw_err_deg: float, cutoff_deg: float = 90.0) -> float:
     """前進速度の減衰係数 [0,1]。正対で1、|yaw_err| >= cutoff で0(cos ベース)。
 
