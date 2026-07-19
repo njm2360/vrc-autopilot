@@ -137,8 +137,8 @@ def test_move_probe_stays_within_band():
     projs = [(s.x - x0) * dx + (s.z - z0) * dz for s in run.samples]
     margin = 2.0 * (DEAD + 2 * DT)
     assert max(abs(p) for p in projs) <= max_travel + margin
-    # 終了時はホーム近くに戻っている
-    assert abs(projs[-1]) < 0.15
+    # 終了時はホーム帯の近くに戻っている(帯 + むだ時間と1フレームぶんの行き過ぎ)
+    assert abs(projs[-1]) < 0.08 + 2.0 * (DEAD + DT)
     # 静特性は範囲内の短い往復からでも復元できる
     model = identify_axis(run)
     assert model.rate(1.0) == pytest.approx(2.0, rel=0.1)

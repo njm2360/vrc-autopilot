@@ -18,7 +18,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from itertools import pairwise
 from pathlib import Path
-from statistics import fmean, median
+from statistics import fmean, median, pstdev
 
 import numpy as np
 
@@ -27,7 +27,8 @@ from ..control.maneuvers import PoseSource
 
 logger = logging.getLogger(__name__)
 
-AXES = ("yaw", "pitch", "forward", "strafe")
+# 既定の測定順(移動軸を先に測る)
+AXES = ("forward", "strafe", "yaw", "pitch")
 # VRChat の /input/ 軸名
 AXIS_INPUT = {
     "yaw": "LookHorizontal",
@@ -37,10 +38,14 @@ AXIS_INPUT = {
 }
 _KIND = {"yaw": "angle", "pitch": "angle", "forward": "pos", "strafe": "pos"}
 _UNIT = {"angle": "deg/s", "pos": "m/s"}
-# むだ時間検出の変化しきい値(HUD デコードの量子化ノイズより十分大きく)
+# むだ時間検出の変化しきい値(これを超えたら動き出しとみなす)
 _ONSET_THRESHOLD = {"angle": 0.1, "pos": 0.01}
-# これ以上はクランプ(±90°)張り付きとみなして identify_axis が除外する
-_PITCH_SAT_DEG = 88.0
+# これ以上はクランプ張り付きとみなして identify_axis が除外する
+_PITCH_SAT_DEG = 79.5
+# プチフリ判定: フレーム間隔中央値のこの倍を超えるギャップは HUD 途絶とみなす
+FREEZE_FACTOR = 2.5
+# 不感帯オンセット判定: 最大レートに対する「動いた」しきい値の割合
+ONSET_EPS_FRAC = 0.03
 
 
 # ---------------------------------------------------------------------------
@@ -84,7 +89,7 @@ def look_schedule(
     """視点軸用スケジュール: 各レベルを +v / -v の対で、間に 0 を挟む。
 
     0→v の遷移ごとにむだ時間が測れる。+と−を対にするので pitch は各レベルで
-    ほぼ中央に戻る(クランプ ±90° に張り付かないよう hold は短めに)。
+    ほぼ中央に戻る(クランプ ±80° に張り付かないよう hold は短めに)。
     """
     segs = [ProbeSegment(0.0, settle)]
     for v in levels:
@@ -274,6 +279,16 @@ def run_axis_probe(
     return rec.result()
 
 
+def move_anchor(pose, axis: str) -> tuple[float, float, float, float]:
+    """移動プローブの射影基準 (hx, hz, dx, dz)。ポーズの位置と向きから作る。"""
+    yr = math.radians(pose.yaw_deg)
+    if axis == "forward":
+        dx, dz = math.sin(yr), math.cos(yr)
+    else:  # strafe: 右方向
+        dx, dz = math.cos(yr), -math.sin(yr)
+    return pose.position[0], pose.position[2], dx, dz
+
+
 def run_move_probe(
     reader: PoseSource,
     send: Callable[[float], None],
@@ -285,6 +300,7 @@ def run_move_probe(
     settle: float = 0.6,
     passes: int = 2,
     home_tol: float = 0.08,
+    anchor: tuple[float, float, float, float] | None = None,
     monotonic: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
     wait_cap: float = 2.0,
@@ -301,6 +317,9 @@ def run_move_probe(
     切り返し直後はむだ時間ぶん逆向きに動いているため、identify_axis はセグメント
     先頭(skip_min 秒以上)を捨てて定常部だけで速度を取る。hold は片道の上限秒
     (遅いレベルでは帯に届かずこの時間で切れる)。
+
+    anchor=(hx, hz, dx, dz) を渡すと開始ポーズでなくその基準で射影する。
+    複数回呼ぶとき(適応プローブ)にホーミング誤差が累積しないよう共有する。
     """
     rec = _ProbeRecorder(
         reader,
@@ -311,14 +330,9 @@ def run_move_probe(
         poll=poll,
         blind_cap=blind_cap,
     )
-    # ホーム位置と射影方向は最初のポーズの向き基準
     pose = rec.wait_first_pose()
-    yr = math.radians(pose.yaw_deg)
-    if axis == "forward":
-        dx, dz = math.sin(yr), math.cos(yr)
-    else:  # strafe: 右方向
-        dx, dz = math.cos(yr), -math.sin(yr)
-    hx, hz = pose.position[0], pose.position[2]
+    # ホーム位置と射影方向は最初のポーズの向き基準(anchor 指定時はそちら)
+    hx, hz, dx, dz = anchor if anchor is not None else move_anchor(pose, axis)
 
     def proj(p) -> float:
         return (p.position[0] - hx) * dx + (p.position[2] - hz) * dz
@@ -359,7 +373,7 @@ def run_pitch_probe(
     hold: float = 0.8,
     settle: float = 0.6,
     span: float = 45.0,
-    abs_limit: float = 85.0,
+    abs_limit: float = 78.0,
     home_tol: float = 5.0,
     home_level: float = 0.5,
     monotonic: Callable[[], float] = time.monotonic,
@@ -370,7 +384,7 @@ def run_pitch_probe(
 ) -> ProbeRun:
     """pitch の角度ガード付きプローブ。
 
-    時間ベース(look_schedule)だと速いレベルで ±90° クランプに張り付き、静特性が
+    時間ベース(look_schedule)だと速いレベルで ±80° クランプに張り付き、静特性が
     黙って潰れる。そこでセグメント開始の pitch から ±span(絶対値では abs_limit)を
     超えたら指令を切る。± を対で振れば各レベル後はほぼ元の角度に戻り、残りの
     ドリフトはレベル間で開始時のホームへ戻して吸収する。+指令で pitch がどちらへ
@@ -415,8 +429,10 @@ def run_pitch_probe(
                     send,
                     cmd,
                     2 * hold,
-                    stop_when=lambda p: abs(p.pitch_deg - home) <= home_tol
-                    or abs(p.pitch_deg) >= abs_limit,
+                    stop_when=lambda p: (
+                        abs(p.pitch_deg - home) <= home_tol
+                        or abs(p.pitch_deg) >= abs_limit
+                    ),
                 )
                 rec.run_segment(send, 0.0, settle)
     finally:
@@ -427,6 +443,135 @@ def run_pitch_probe(
 # ---------------------------------------------------------------------------
 # 同定(抽出)
 # ---------------------------------------------------------------------------
+
+
+def freeze_gap(run: ProbeRun, factor: float = FREEZE_FACTOR) -> float | None:
+    """プチフリ判定しきい値[s](フレーム間隔中央値の factor 倍)。判定不能なら None。"""
+    ts = [s.t for s in run.samples]
+    dts = [b - a for a, b in pairwise(ts) if b > a]
+    if len(dts) < 8:
+        return None
+    return factor * median(dts)
+
+
+def run_max_gap(run: ProbeRun) -> float:
+    """記録全体の最大サンプル間隔[s](プチフリ検出用)。"""
+    ts = [s.t for s in run.samples]
+    return max((b - a for a, b in pairwise(ts)), default=0.0)
+
+
+@dataclass(frozen=True)
+class SegmentRate:
+    """1セグメントの定常速度と、その定常窓内の最大サンプル間隔(プチフリ検出用)。"""
+
+    seg: int
+    cmd: float
+    rate: float
+    max_gap: float
+
+
+def segment_rates(
+    run: ProbeRun,
+    *,
+    skip_frac: float = 0.4,
+    skip_min: float = 0.2,
+    min_samples: int = 3,
+) -> tuple[list[SegmentRate], int]:
+    """セグメントごとの定常速度(窓の最小二乗傾き)を求める。
+
+    先頭 max(skip_frac×区間長, skip_min) 秒を過渡+むだ時間として捨て、残りが
+    min_samples 未満のセグメントは棄却する。(結果, 棄却した指令セグメント数)。
+    """
+    by_seg: dict[int, list[ProbeSample]] = {}
+    for s in run.samples:
+        by_seg.setdefault(s.seg, []).append(s)
+    start_by_seg = {i: (cmd, t) for i, cmd, t in run.seg_starts}
+
+    out: list[SegmentRate] = []
+    skipped = 0
+    clamped = 0
+    for i, samples in by_seg.items():
+        cmd, t_send = start_by_seg[i]
+        if run.axis == "pitch":
+            # クランプに張り付いたサンプルは傾きを潰すので捨てる(張り付き前のランプは使える)
+            kept = [s for s in samples if abs(s.pitch) < _PITCH_SAT_DEG]
+            clamped += len(samples) - len(kept)
+            samples = kept
+            if not samples:
+                continue
+        span = samples[-1].t - t_send
+        window = [s for s in samples if s.t >= t_send + max(skip_frac * span, skip_min)]
+        if len(window) < min_samples:
+            if cmd != 0.0:  # cmd=0 のセトリング区間は静特性に使わないので数えない
+                skipped += 1
+            continue
+        t = np.array([s.t for s in window])
+        resp = _responses(window, run.axis)
+        rate = float(np.polyfit(t - t[0], resp, 1)[0])
+        gap = max((b.t - a.t for a, b in pairwise(window)), default=0.0)
+        out.append(SegmentRate(seg=i, cmd=cmd, rate=rate, max_gap=gap))
+    if clamped:
+        logger.warning(
+            "axis %s: dropped %d clamped samples (|pitch| >= %.1f)",
+            run.axis,
+            clamped,
+            _PITCH_SAT_DEG,
+        )
+    return out, skipped
+
+
+@dataclass(frozen=True)
+class DeadtimeSample:
+    """1遷移(0→非0)のむだ時間と、しきい値交差を挟むサンプル間隔(cross_gap)。
+    cross_gap がフリーズしきい値を超える遷移は汚染とみなして除外する。"""
+
+    seg: int
+    cmd: float
+    deadtime_s: float
+    cross_gap: float
+
+
+def deadtime_samples(
+    run: ProbeRun, seg_rate: dict[int, float] | None = None
+) -> list[DeadtimeSample]:
+    """0→非0 の全遷移からむだ時間サンプルを抽出する。
+
+    応答がしきい値を最初に超えたサンプル (t, r) から定常速度で t - r/steady へ
+    逆外挿し、動き出し時刻と送信時刻の差を取る(応答はランプ無しで直線に
+    積み上がるため、動き出しがフレーム途中でも正確)。
+    """
+    if seg_rate is None:
+        seg_rate = {sr.seg: sr.rate for sr in segment_rates(run)[0]}
+    thr = _ONSET_THRESHOLD[_KIND[run.axis]]
+    by_seg: dict[int, list[ProbeSample]] = {}
+    for s in run.samples:
+        by_seg.setdefault(s.seg, []).append(s)
+
+    out: list[DeadtimeSample] = []
+    prev_cmd: float | None = None
+    for i, cmd, t_send in run.seg_starts:
+        if prev_cmd == 0.0 and cmd != 0.0 and i in by_seg and (i - 1) in by_seg:
+            steady = abs(seg_rate.get(i, 0.0))
+            if steady > 1e-9:
+                # 遷移直前の最後のサンプルを基準に応答を測る
+                seq = [by_seg[i - 1][-1]] + by_seg[i]
+                resp = np.abs(_responses(seq, run.axis))
+                prev_s = seq[0]  # 遷移直前(応答≈0)
+                for s, r in zip(seq[1:], resp[1:], strict=True):
+                    r = float(r)
+                    if r > thr:
+                        out.append(
+                            DeadtimeSample(
+                                seg=i,
+                                cmd=cmd,
+                                deadtime_s=max(0.0, s.t - r / steady - t_send),
+                                cross_gap=s.t - prev_s.t,
+                            )
+                        )
+                        break
+                    prev_s = s
+        prev_cmd = cmd
+    return out
 
 
 def _median3(ys: list[float]) -> list[float]:
@@ -531,6 +676,34 @@ class AxisModel:
             self._cache = c = (self.points, xs, ys)
         return float(np.interp(cmd, c[1], c[2]))
 
+    @property
+    def onset(self) -> float:
+        """不感帯オンセット(レートが立ち上がる折れ点。不感帯なしは 0.0)。
+
+        両符号平均の |指令|→|レート| が最大レートの ONSET_EPS_FRAC を超える点
+        から、しきい値ぶんの上振れを傾きで引き戻す。過大側の誤差は補償フロアの
+        ハンチングを誘発するため安全側(下)に寄せる。
+        """
+        cs = sorted({abs(c) for c, _ in self.points if c != 0.0})
+        if not cs:
+            return 0.0
+        mean_abs = [(abs(self.rate(c)) + abs(self.rate(-c))) / 2.0 for c in cs]
+        vmax = max(mean_abs)
+        if vmax <= 0.0:
+            return 0.0
+        eps = ONSET_EPS_FRAC * vmax
+        below = [c for c, r in zip(cs, mean_abs, strict=True) if r <= eps]
+        if not below:
+            return 0.0
+        raw = max(below)
+        above = [(c, r) for c, r in zip(cs, mean_abs, strict=True) if c > raw]
+        if not above:
+            return raw
+        xs = np.array([c - raw for c, _ in above])
+        ys = np.array([r for _, r in above])
+        slope = float(xs @ ys / (xs @ xs))
+        return max(0.0, raw - eps / slope) if slope > 0.0 else raw
+
 
 def identify_axis(
     run: ProbeRun,
@@ -538,56 +711,47 @@ def identify_axis(
     skip_frac: float = 0.4,
     skip_min: float = 0.2,
     min_samples: int = 3,
+    freeze_factor: float | None = FREEZE_FACTOR,
 ) -> AxisModel:
     """記録 1 本から静特性とむだ時間を抽出する。
 
-    静特性: 各セグメントの後半の応答の傾きを最小二乗で取り、同一指令値は平均
-    する。先頭は max(skip_frac×区間長, skip_min) 秒を過渡+むだ時間として捨てる
-    (run_move_probe の切り返し直後の逆走を含む)。それだと定常サンプルが
-    min_samples 未満しか残らない短いセグメントは棄却する(過渡だけの当てはめは
-    速度を大きく誤るため。棄却が出た軸は件数を警告する)。
-    むだ時間: 0→非0 の遷移で応答がしきい値を超えた時刻から、しきい値到達に
-    かかる時間(しきい値/速度)を差し引いて逆算し、遷移全体の中央値を取る。
+    静特性: 各セグメントの後半の応答の傾きを最小二乗で取り(segment_rates)、
+    同一指令値は平均する。定常サンプルが min_samples 未満の短いセグメントは
+    棄却する(過渡だけの当てはめは速度を大きく誤るため)。
+    むだ時間: 0→非0 の全遷移から逆算し(deadtime_samples)、中央値を取る。
+    プチフリ耐性: フレーム間隔中央値の freeze_factor 倍を超えるギャップが
+    定常窓に混ざったセグメントと、交差がギャップを跨いだ遷移は捨てる。
+    None で無効。
     """
     kind = _KIND[run.axis]
-    by_seg: dict[int, list[ProbeSample]] = {}
-    for s in run.samples:
-        by_seg.setdefault(s.seg, []).append(s)
-    start_by_seg = {i: (cmd, t) for i, cmd, t in run.seg_starts}
+    segrates, skipped = segment_rates(
+        run, skip_frac=skip_frac, skip_min=skip_min, min_samples=min_samples
+    )
+    gap_thr = freeze_gap(run, freeze_factor) if freeze_factor is not None else None
 
     # ---- 静特性 ----
     rates: dict[float, list[float]] = {}
-    seg_rate: dict[int, float] = {}
-    skipped = 0
-    for i, samples in by_seg.items():
-        cmd, t_send = start_by_seg[i]
-        if run.axis == "pitch":
-            # クランプに張り付いたサンプルは傾きを潰すので捨てる(張り付き前のランプは使える)
-            kept = [s for s in samples if abs(s.pitch) < _PITCH_SAT_DEG]
-            if len(kept) < len(samples):
-                logger.warning(
-                    "pitch seg %d (cmd=%+.2f): dropped %d/%d clamped samples",
-                    i,
-                    cmd,
-                    len(samples) - len(kept),
-                    len(samples),
-                )
-                samples = kept
-            if not samples:
-                continue
-        span = samples[-1].t - t_send
-        window = [s for s in samples if s.t >= t_send + max(skip_frac * span, skip_min)]
-        if len(window) < min_samples:
-            if cmd != 0.0:  # cmd=0 のセトリング区間は静特性に使わないので数えない
-                skipped += 1
+    frozen = 0
+    for sr in segrates:
+        if sr.cmd == 0.0:
             continue
-        t = np.array([s.t for s in window])
-        resp = _responses(window, run.axis)
-        rate = float(np.polyfit(t - t[0], resp, 1)[0])
-        seg_rate[i] = rate
-        if cmd != 0.0:
-            rates.setdefault(cmd, []).append(rate)
-
+        if gap_thr is not None and sr.max_gap > gap_thr:
+            frozen += 1
+            continue
+        rates.setdefault(sr.cmd, []).append(sr.rate)
+    if frozen:
+        logger.warning(
+            "axis %s: dropped %d command segments containing a freeze gap "
+            "(> %.0f ms) from the static curve",
+            run.axis,
+            frozen,
+            gap_thr * 1000,
+        )
+    if not rates and frozen:
+        # 全滅なら汚染込みで続行(モデル無しよりまし。警告済み)
+        for sr in segrates:
+            if sr.cmd != 0.0:
+                rates.setdefault(sr.cmd, []).append(sr.rate)
     if skipped:
         n_cmd_segs = sum(1 for _, cmd, _ in run.seg_starts if cmd != 0.0)
         logger.warning(
@@ -606,28 +770,21 @@ def identify_axis(
     points = _denoise_points(points, run.axis)
 
     # ---- むだ時間 ----
-    thr = _ONSET_THRESHOLD[kind]
-    deads: list[float] = []
-    prev_cmd: float | None = None
-    for i, cmd, t_send in run.seg_starts:
-        if prev_cmd == 0.0 and cmd != 0.0 and i in by_seg and (i - 1) in by_seg:
-            steady = abs(seg_rate.get(i, 0.0))
-            if steady > 1e-9:
-                # 遷移直前の最後のサンプルを基準に応答を測る
-                seq = [by_seg[i - 1][-1]] + by_seg[i]
-                resp = np.abs(_responses(seq, run.axis))
-                prev_s, prev_r = seq[0], float(resp[0])  # 遷移直前(応答≈0)
-                for s, r in zip(seq[1:], resp[1:], strict=True):
-                    r = float(r)
-                    if r > thr:
-                        # しきい値を跨ぐ時刻を前後サンプルで線形補間(1フレーム量子化遅れを除く)
-                        frac = (thr - prev_r) / (r - prev_r) if r > prev_r else 0.0
-                        t_cross = prev_s.t + frac * (s.t - prev_s.t)
-                        deads.append(max(0.0, t_cross - t_send - thr / steady))
-                        break
-                    prev_s, prev_r = s, r
-        prev_cmd = cmd
-    deadtime = float(median(deads)) if deads else 0.0
+    seg_rate = {sr.seg: sr.rate for sr in segrates}
+    deads = deadtime_samples(run, seg_rate)
+    if gap_thr is not None:
+        clean = [d for d in deads if d.cross_gap <= gap_thr]
+        if len(clean) < len(deads):
+            logger.warning(
+                "axis %s: dropped %d/%d deadtime transitions whose onset "
+                "crossing straddles a freeze gap",
+                run.axis,
+                len(deads) - len(clean),
+                len(deads),
+            )
+        if clean:  # 全滅なら汚染込みで続行(警告済み)
+            deads = clean
+    deadtime = float(median([d.deadtime_s for d in deads])) if deads else 0.0
 
     return AxisModel(
         axis=run.axis, unit=_UNIT[kind], points=points, deadtime_s=deadtime
@@ -638,6 +795,24 @@ def extract_dts(run: ProbeRun, cap: float = 0.2) -> list[float]:
     """フレーム間隔 dt の列(記録全体。異常な間隔は cap で除外)。"""
     ts = [s.t for s in run.samples]
     return [b - a for a, b in pairwise(ts) if 0.0 < b - a <= cap]
+
+
+def deadtime_stats(run: ProbeRun, freeze_factor: float | None = FREEZE_FACTOR) -> dict:
+    """むだ時間の分布統計(フリーズ汚染遷移は除外。全滅時は汚染込み)。"""
+    deads_all = deadtime_samples(run)
+    thr = freeze_gap(run, freeze_factor) if freeze_factor is not None else None
+    deads = [d.deadtime_s for d in deads_all if thr is None or d.cross_gap <= thr]
+    if not deads:
+        deads = [d.deadtime_s for d in deads_all]
+    return {
+        "n": len(deads),
+        "dropped": len(deads_all) - len(deads),
+        "median": median(deads) if deads else 0.0,
+        "mean": fmean(deads) if deads else 0.0,
+        "std": pstdev(deads) if len(deads) > 1 else 0.0,
+        "p95": float(np.percentile(deads, 95)) if deads else 0.0,
+        "max": max(deads, default=0.0),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -696,11 +871,14 @@ class PlantModel:
 def build_plant(
     runs: list[ProbeRun], *, meta: dict | None = None, max_dt_seq: int = 2000
 ) -> PlantModel:
-    """複数軸のプローブ記録から PlantModel を組む。同定に失敗した軸はスキップする。"""
+    """複数軸のプローブ記録から PlantModel を組む(むだ時間の分布統計は meta の
+    deadtime_stats に載る)。同定に失敗した軸はスキップする。"""
     axes: dict[str, AxisModel] = {}
+    stats: dict[str, dict] = {}
     for r in runs:
         try:
             axes[r.axis] = identify_axis(r)
+            stats[r.axis] = deadtime_stats(r)
         except ValueError as e:
             logger.warning("axis %s: identify failed, skipping (%s)", r.axis, e)
     if not axes:
@@ -708,11 +886,13 @@ def build_plant(
     dts: list[float] = []
     for r in runs:
         dts.extend(extract_dts(r))
+    meta = dict(meta or {})
+    meta["deadtime_stats"] = stats
     return PlantModel(
         axes=axes,
         dt_mean=fmean(dts) if dts else 0.05,
         dt_seq=dts[:max_dt_seq],
-        meta=meta or {},
+        meta=meta,
     )
 
 

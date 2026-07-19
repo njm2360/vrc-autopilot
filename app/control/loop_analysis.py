@@ -16,9 +16,6 @@ import numpy as np
 from ..sysid.identify import PlantModel
 from .controller import PatrolGains
 
-# VRChat 側の不感帯オンセット(静特性の折れ点。gain-tuning.md のプラント表)
-_ONSET = {"yaw": 0.50, "pitch": 0.10, "forward": 0.10, "strafe": 0.10}
-
 
 @dataclass(frozen=True)
 class LoopSpec:
@@ -77,7 +74,7 @@ def patrol_loops(g: PatrolGains) -> list[LoopSpec]:
 
 def _axis_gain(plant: PlantModel, spec: LoopSpec) -> float:
     """静特性の傾き(オンセットより上を最小二乗)から実効ゲイン K を出す。"""
-    onset = _ONSET[spec.axis]
+    onset = plant.axes[spec.axis].onset
     pts = [(c, r) for c, r in plant.axes[spec.axis].points if abs(c) > onset + 0.02]
     xs = np.array([math.copysign(abs(c) - onset, c) for c, _ in pts])
     ys = np.array([r for _, r in pts])

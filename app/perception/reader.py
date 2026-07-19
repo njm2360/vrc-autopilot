@@ -164,9 +164,7 @@ class PoseReader:
                 continue
             try:
                 self.process_frame(frame)
-            except (
-                Exception
-            ) as exc:  # noqa: BLE001 - フレーム不正(リサイズ等)は回復対象
+            except Exception as exc:  # noqa: BLE001 - フレーム不正(リサイズ等)は回復対象
                 self._note_failure(f"frame processing failed: {exc}")
 
     def _note_failure(self, detail: str) -> None:

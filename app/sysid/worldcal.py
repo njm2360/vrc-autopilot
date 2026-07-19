@@ -192,7 +192,6 @@ def scale_gains(
 
 @dataclass
 class WorldCalibration:
-
     axes: dict[str, ScaleEstimate]  # "forward" / "strafe"
     warnings: list[str] = field(default_factory=list)  # むだ時間増加など
     meta: dict = field(default_factory=dict)

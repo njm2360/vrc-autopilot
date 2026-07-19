@@ -32,6 +32,25 @@ class _DelayedCommand:
             self._hist.popleft()
         return self._hist[0][1]
 
+    def intervals(self, t0: float, t1: float) -> list[tuple[float, float]]:
+        """[t0, t1) を有効指令値の区間 (長さ, 指令値) に分割して返す。
+        フレーム途中の活性化をフレーム境界へ量子化しないための区分。"""
+        cur = self.value(t0)  # t0 以前に活性化済みの最新値(古い履歴も掃除される)
+        if t1 <= t0:
+            return [(0.0, cur)]
+        out: list[tuple[float, float]] = []
+        t = t0
+        for ts, v in list(self._hist)[1:]:
+            act = ts + self.dead
+            if act >= t1:
+                break
+            if act > t:
+                out.append((act - t, cur))
+                t = act
+            cur = v
+        out.append((t1 - t, cur))
+        return out
+
 
 class SimulatedVRChat:
     """PlantModel を積分する模擬 VRChat(PoseSource + LookActuator + MoveActuator)。
@@ -55,6 +74,7 @@ class SimulatedVRChat:
         self._x, self._y, self._z = x, y, z
         self._yaw, self._pitch = yaw, pitch
         self.now = 0.0
+        self._ext_t = 0.0  # 外部クロック(SimClock)の現在時刻。指令スタンプ用
         self._time_ms = 0
         seq = model.dt_seq if (use_dt_seq and model.dt_seq) else []
         if not seq:
@@ -76,15 +96,22 @@ class SimulatedVRChat:
             return self._pose
 
     # ---- LookActuator / MoveActuator -------------------------------------
+    def _stamp(self) -> float:
+        """指令のタイムスタンプ。最終フレーム時刻で打つと指令が最大1フレーム
+        早く効くため、外部クロック時刻を優先する。"""
+        return max(self.now, self._ext_t)
+
     def look(self, turn: float = 0.0, pitch: float = 0.0) -> None:
         with self._lock:
-            self._cmds["yaw"].set(self.now, turn)
-            self._cmds["pitch"].set(self.now, pitch)
+            t = self._stamp()
+            self._cmds["yaw"].set(t, turn)
+            self._cmds["pitch"].set(t, pitch)
 
     def move(self, forward: float = 0.0, strafe: float = 0.0) -> None:
         with self._lock:
-            self._cmds["forward"].set(self.now, forward)
-            self._cmds["strafe"].set(self.now, strafe)
+            t = self._stamp()
+            self._cmds["forward"].set(t, forward)
+            self._cmds["strafe"].set(t, strafe)
 
     def stop(self) -> None:
         self.look(0.0, 0.0)
@@ -107,10 +134,10 @@ class SimulatedVRChat:
                 dt = self._pending_dt
             self._pending_dt = None
             t = self.now
-            wy = self._rate("yaw", t)
-            wp = self._rate("pitch", t)
-            vf = self._rate("forward", t)
-            vs = self._rate("strafe", t)
+            wy = self._rate("yaw", t, t + dt)
+            wp = self._rate("pitch", t, t + dt)
+            vf = self._rate("forward", t, t + dt)
+            vs = self._rate("strafe", t, t + dt)
             self._yaw = wrap180(self._yaw + wy * dt)
             # 実機のポーズデコーダ(pose.py の asin)は ±90° まで表す
             self._pitch = max(-90.0, min(90.0, self._pitch + wp * dt))
@@ -124,9 +151,16 @@ class SimulatedVRChat:
             self._pose = self._make_pose()
             return self._pose
 
-    def _rate(self, axis: str, t: float) -> float:
+    def _rate(self, axis: str, t0: float, t1: float) -> float:
+        """[t0, t1) の平均レート(フレーム内で活性化する指令を区分平均)。"""
         m = self.model.axes.get(axis)
-        return m.rate(self._cmds[axis].value(t)) if m else 0.0
+        if m is None:
+            return 0.0
+        parts = self._cmds[axis].intervals(t0, t1)
+        span = t1 - t0
+        if span <= 0.0:
+            return m.rate(parts[-1][1])
+        return sum(m.rate(v) * dur for dur, v in parts) / span
 
     def _make_pose(self) -> Pose:
         yr = math.radians(self._yaw)
@@ -181,6 +215,7 @@ class SimClock:
         self.t = 0.0
 
     def monotonic(self) -> float:
+        self.sim._ext_t = self.t  # フレーム途中の指令スタンプ用(look/move 参照)
         return self.t
 
     def sleep(self, seconds: float) -> None:
@@ -189,3 +224,4 @@ class SimClock:
             self.t = self.sim.next_frame_time()
             self.sim.step()
         self.t = target
+        self.sim._ext_t = self.t

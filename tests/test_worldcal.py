@@ -277,9 +277,9 @@ def test_scale_gains_scales_every_move_pid_term():
         "strafe_ki",
         "strafe_kd",
     ):
-        assert getattr(out.gains, name) == pytest.approx(
-            getattr(base, name) / 2.0
-        ), name
+        assert getattr(out.gains, name) == pytest.approx(getattr(base, name) / 2.0), (
+            name
+        )
 
 
 def _cruise_speed(cmd: float, s: float, ref: float) -> float:
