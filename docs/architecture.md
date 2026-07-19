@@ -4,7 +4,7 @@ VRChat 自動化のデータフローと、それを実装する `app` パッケ
 
 ## パイプライン
 
-```
+```txt
 VRChat 画面(HUDビットグリッド)
     │  スクリーンキャプチャ(ネイティブ解像度・クライアント左上の小領域)
     ▼
@@ -68,16 +68,17 @@ VRChat 画面(HUDビットグリッド)
 
 ### `control/` — 閉ループ制御 + VRChat 出力
 
-| モジュール              | 役割                                                                                   |
-| ----------------------- | -------------------------------------------------------------------------------------- |
-| `control/guidance.py`   | フレーム単位の照準幾何(`wrap180` / `heading_error` / `pitch_error` / `forward_factor`) |
-| `control/pid.py`        | 汎用 PID(離散・積分の溜まりすぎ防止・不感帯補償)                                       |
-| `control/controller.py` | `AxisController`(PID+tolゲート)/ `PatrolGains` / 制御器ビルダー                        |
-| `control/actuator.py`   | `LookActuator`/`MoveActuator` IF + `MouseLookActuator`(DirectInput)                    |
-| `control/osc.py`        | VRChat への OSC 送信(look/move/stop で両 actuator IF を満たす)                         |
-| `control/recording.py`  | `Recorder` IF(`ControlLog`=CSV / `ListRecorder`)+ `AxisMetrics`(応答指標)              |
-| `control/maneuvers.py`  | 制御ループの部品(`follow_path`(carrot追従)/ `aim_at` / `strafe_align` / `turn_to`)     |
-| `control/pilot.py`      | `Pilot` ファサード(経路計画+ループ連結。実機 I/O は `connect()` に集約)                |
+| モジュール                 | 役割                                                                                   |
+| -------------------------- | -------------------------------------------------------------------------------------- |
+| `control/guidance.py`      | フレーム単位の照準幾何(`wrap180` / `heading_error` / `pitch_error` / `forward_factor`) |
+| `control/pid.py`           | 汎用 PID(離散・積分の溜まりすぎ防止・不感帯補償)                                       |
+| `control/controller.py`    | `AxisController`(PID+tolゲート)/ `PatrolGains` / 制御器ビルダー                        |
+| `control/loop_analysis.py` | ループ整形解析(安定余裕・ボード線図。`analyze_patrol` / `save_bode_png`)               |
+| `control/actuator.py`      | `LookActuator`/`MoveActuator` IF + `MouseLookActuator`(DirectInput)                    |
+| `control/osc.py`           | VRChat への OSC 送信(look/move/stop で両 actuator IF を満たす)                         |
+| `control/recording.py`     | `Recorder` IF(`ControlLog`=CSV / `ListRecorder`)+ `AxisMetrics`(応答指標)              |
+| `control/maneuvers.py`     | 制御ループの部品(`follow_path`(carrot追従)/ `aim_at` / `strafe_align` / `turn_to`)     |
+| `control/pilot.py`         | `Pilot` ファサード(経路計画+ループ連結。実機 I/O は `connect()` に集約)                |
 
 ### `sysid/` — システム同定・シミュレーション
 
@@ -96,4 +97,5 @@ VRChat 画面(HUDビットグリッド)
 | `patrol-buttons` | `cli/patrol_buttons.py` | マップ上でボタンを壁を避けて巡回(OSC + PID)                       |
 | `probe-axes`     | `cli/probe_axes.py`     | 入力軸の応答特性を測定し `plant.json` に同定(--from-log で再同定) |
 | `sim-face`       | `cli/sim_face.py`       | 同定プラント上で正対ループを回しゲインを検証(実機不要)            |
+| `bode-margins`   | `cli/bode_margins.py`   | 同定プラント上で全ループの安定余裕とボード線図を出す(実機不要)    |
 | `log-video`      | `cli/log_video.py`      | 制御ログCSVを一人称3D+2D地図の動画に再生(目視確認用)              |

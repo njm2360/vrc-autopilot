@@ -122,6 +122,14 @@
 | translate strafe  | 3.3        | 85° | 25.0 dB(×17.8) | +447 ms          |
 | align strafe      | 13.0       | 88° | 7.7 dB(×2.4)   | +118 ms          |
 
+上表は `bode-margins` が plant.json から再生成する(下図。プラントを再同定したら数値がずれるので測り直すこと)。ωc/PM/追加むだ時間余裕は本表と一致し、GM だけむだ時間の離散化の違いで 1〜2 dB 前後する。
+
+![巡回制御ループの開ループボード線図](loop-bode.png)
+
+```bash
+uv run bode-margins --model logs/probe_<日時>/plant.json --out docs/loop-bode.png
+```
+
 **D 項は PM を稼ぐが GM を落とす。** 離散微分の高周波ゲインは 2·kd/dt まで伸びる
 (dt=17ms なら kd の 117 倍)ので ω180 付近のゲインを直接押し上げ、PM が 100° あっても
 GM が 1.5 を割ることがある。**割に合うのは打ち消すべき遅れがあるときだけで、
