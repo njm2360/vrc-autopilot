@@ -1,7 +1,7 @@
 [project]
-name = "dekapu-switch-bot"
+name = "vrc-autopilot"
 version = "0.1.0"
-description = "VRChat PoseTelemetryHUD 6DoF decoder + OSC feedback control"
+description = "VRChat AutoPilot"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [

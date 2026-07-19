@@ -1,4 +1,4 @@
-# dekapu-switch-bot
+# vrc-autopilot
 
 [VRCPositionHUD](https://github.com/njm2360/vrc-position-hud)を利用してOSCで移動・視点を操作する自動化ツール
 
