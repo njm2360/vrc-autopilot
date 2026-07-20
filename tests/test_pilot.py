@@ -495,6 +495,17 @@ def test_pilot_pitch_error_to():
     assert p.pitch_error_to((0.0, 3.0, 5.0)) > 0.0
 
 
+# ---- マップ切替 ----------------------------------------------------------
+def test_pilot_use_grid_switches_active_map():
+    # 全面 free で開始 → can_reach True。全面ブロックの階へ差し替えると False
+    p = _pilot(free=np.ones((10, 10), bool), poses=[_pose(1, (0.5, 1.6, 0.5))])
+    assert p.can_reach((0.85, 0.85))
+    blocked = _grid(np.zeros((10, 10), bool))
+    p.use_grid(blocked)
+    assert p.grid is blocked
+    assert not p.can_reach((0.85, 0.85))  # 差し替え後は新しい階で計画する
+
+
 # ---- dry-run 経路計画 ----------------------------------------------------
 def test_pilot_plan_without_moving():
     p = _pilot(poses=[_pose(1, (0.15, 1.6, 0.15))])

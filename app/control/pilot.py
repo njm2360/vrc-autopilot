@@ -306,6 +306,15 @@ class Pilot:
         tx, tz = self._xz_of(xyz)
         return math.degrees(math.atan2(cur[0] - tx, cur[1] - tz))
 
+    # ---- マップ切替 ----------------------------------------------------
+    def use_grid(self, grid: NavGrid) -> None:
+        """以後の移動と経路計画で使う NavGrid を差し替える(階の切替用)。
+
+        位置はワールド座標のまま、歩ける領域だけ変わる。切替点は呼び出し側で決める。
+        """
+        logger.info("grid switched: %dx%d cells", *grid.shape)
+        self.grid = grid
+
     # ---- 経路計画(dry-run) --------------------------------------------
     def plan(
         self,
