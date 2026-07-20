@@ -69,6 +69,7 @@ class PoseReader:
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
+        self._stopped = False
         self._warned = False
         self._queue: queue.Queue[Pose] = queue.Queue(maxsize=_QUEUE_MAX)
 
@@ -77,6 +78,8 @@ class PoseReader:
 
     # ---- ライフサイクル -------------------------------------------------
     def start(self) -> PoseReader:
+        if self._stopped:
+            raise RuntimeError("PoseReader is single-use")
         if self._thread and self._thread.is_alive():
             return self
         self._stop.clear()
@@ -87,10 +90,13 @@ class PoseReader:
         return self
 
     def stop(self, join: bool = True, timeout: float = 2.0) -> None:
+        self._stopped = True
         self._stop.set()
-        if join and self._thread:
-            self._thread.join(timeout)
-        self.source.close()
+        if self._thread:
+            if join:
+                self._thread.join(timeout)
+        else:
+            self.source.close()  # worker 未起動なのでここで閉じる
 
     def __enter__(self) -> PoseReader:
         return self.start()
@@ -156,16 +162,19 @@ class PoseReader:
         return result
 
     def _run(self) -> None:
-        while not self._stop.is_set():
-            try:
-                frame = self.source.grab()
-            except Exception as exc:  # noqa: BLE001 - ウィンドウ消失等は回復対象
-                self._note_failure(f"capture failed: {exc} (VRChat window gone?)")
-                continue
-            try:
-                self.process_frame(frame)
-            except Exception as exc:  # noqa: BLE001 - フレーム不正(リサイズ等)は回復対象
-                self._note_failure(f"frame processing failed: {exc}")
+        try:
+            while not self._stop.is_set():
+                try:
+                    frame = self.source.grab()
+                except Exception as exc:  # ウィンドウ消失等は回復対象
+                    self._note_failure(f"capture failed: {exc} (VRChat window gone?)")
+                    continue
+                try:
+                    self.process_frame(frame)
+                except Exception as exc:  # フレーム不正(リサイズ等)は回復対象
+                    self._note_failure(f"frame processing failed: {exc}")
+        finally:
+            self.source.close()  # grab と同じスレッドで閉じる(mss 非スレッドセーフ)
 
     def _note_failure(self, detail: str) -> None:
         """キャプチャ/処理の例外を失敗として計上し、少し待って再試行する。"""
