@@ -7,6 +7,8 @@ Recorder はフレームごとの行の記録先(CSV 等)の抽象。AxisAccumul
 
 import csv
 from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
 from typing import Protocol
 
 
@@ -68,9 +70,15 @@ class ControlLog:
         "fwd_factor",  # 向きズレによる前進減衰係数
     ]
 
+    @classmethod
+    def timestamped(cls, dir_: str = "logs", prefix: str = "control") -> ControlLog:
+        """dir_/<prefix>_<日時>.csv を開く(ディレクトリは自動生成)。"""
+        return cls(Path(dir_) / f"{prefix}_{datetime.now():%Y%m%d_%H%M%S}.csv")
+
     def __init__(self, path):
-        self.path = path
-        self._f = open(path, "w", newline="", encoding="utf-8")
+        self.path = Path(path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._f = open(self.path, "w", newline="", encoding="utf-8")
         self._w = csv.DictWriter(self._f, fieldnames=self.FIELDS, extrasaction="ignore")
         self._w.writeheader()
 
@@ -83,6 +91,12 @@ class ControlLog:
             self._f.close()
         except Exception:
             pass
+
+    def __enter__(self) -> ControlLog:
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.close()
 
 
 @dataclass

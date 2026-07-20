@@ -1,7 +1,5 @@
 import logging
 from collections.abc import Callable
-from datetime import datetime
-from pathlib import Path
 from typing import NamedTuple
 
 from app.control.maneuvers import NavResult
@@ -67,30 +65,26 @@ def build_route(pilot: Pilot) -> list[Stop]:
 
 def main() -> None:
     grid = NavGrid.from_mapper(RoomMapper.load(MAP))
-    log_path = Path(f"logs/buttons_{datetime.now():%Y%m%d_%H%M%S}.csv")
-    log = ControlLog(log_path)
     skipped = 0
-    try:
-        with Pilot.connect(grid, recorder=log) as pilot:
-            pilot.wait_until_hud()
-            pilot.wait_until_active()
-            for stop in build_route(pilot):
-                nav = stop.move(stop.goal, name=stop.name)
-                for name, xyz in stop.buttons:
-                    if nav.arrived:
-                        res = pilot.click_at(xyz, name=name)
-                        outcome = (
-                            "clicked" if res.clicked else f"skipped ({res.reason})"
-                        )
-                    else:
-                        outcome = f"skipped ({nav.reason})"
-                    skipped += outcome != "clicked"
-                    print(f"{name}: {outcome}", flush=True)
-    finally:
-        log.close()
+    with (
+        ControlLog.timestamped("logs", "buttons") as log,
+        Pilot.connect(grid, recorder=log) as pilot,
+    ):
+        pilot.wait_until_hud()
+        pilot.wait_until_active()
+        for stop in build_route(pilot):
+            nav = stop.move(stop.goal, name=stop.name)
+            for name, xyz in stop.buttons:
+                if nav.arrived:
+                    res = pilot.click_at(xyz, name=name)
+                    outcome = "clicked" if res.clicked else f"skipped ({res.reason})"
+                else:
+                    outcome = f"skipped ({nav.reason})"
+                skipped += outcome != "clicked"
+                print(f"{name}: {outcome}", flush=True)
     if skipped:
         print(f"{skipped} skipped")
-    print(f"log: {log_path}")
+    print(f"log: {log.path}")
 
 
 if __name__ == "__main__":

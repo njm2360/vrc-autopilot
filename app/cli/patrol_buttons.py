@@ -1,7 +1,6 @@
 import argparse
 import dataclasses
 import math
-from datetime import datetime
 from pathlib import Path
 
 from app.cli._logging import setup_logging
@@ -89,11 +88,6 @@ def _render_plan(grid: NavGrid, start, legs, out: Path) -> Path:
 
 
 def _run_live(grid, targets, args, gains: PatrolGains) -> None:
-    log_path = Path("logs") / f"patrol_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    log = ControlLog(log_path)
-    print(f"control log: {log_path}")
-
     look = (
         MouseLookActuator(
             yaw_gain=args.mouse_yaw_gain, pitch_gain=args.mouse_pitch_gain
@@ -101,21 +95,22 @@ def _run_live(grid, targets, args, gains: PatrolGains) -> None:
         if args.look == "mouse"
         else None  # 省略時は OSC
     )
-    pilot = Pilot.connect(
-        grid, gains=gains, world_cal=args.world_cal, look=look, recorder=log
-    )
-    print(f"look={args.look}  waiting for HUD...")
-    pilot.wait_until_hud()
-    try:
-        for name, tgt_xz, tgt_y, face_yaw in targets:
-            print(f"-> {name} {tgt_xz} y={tgt_y} face_yaw={face_yaw:g}")
-            pilot.approach((tgt_xz[0], tgt_y, tgt_xz[1]), face_yaw, name=name)
-        print("patrol done.")
-    except KeyboardInterrupt:
-        print("\ninterrupted.")
-    finally:
-        pilot.close()
-        log.close()
+    with (
+        ControlLog.timestamped("logs", "patrol") as log,
+        Pilot.connect(
+            grid, gains=gains, world_cal=args.world_cal, look=look, recorder=log
+        ) as pilot,
+    ):
+        print(f"control log: {log.path}")
+        print(f"look={args.look}  waiting for HUD...")
+        pilot.wait_until_hud()
+        try:
+            for name, tgt_xz, tgt_y, face_yaw in targets:
+                print(f"-> {name} {tgt_xz} y={tgt_y} face_yaw={face_yaw:g}")
+                pilot.approach((tgt_xz[0], tgt_y, tgt_xz[1]), face_yaw, name=name)
+            print("patrol done.")
+        except KeyboardInterrupt:
+            print("\ninterrupted.")
 
 
 def _add_gain_args(parser) -> None:
