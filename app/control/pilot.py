@@ -6,6 +6,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
 from ..core.pose import Pose
+from ..perception.capture import WindowFocus
 from ..perception.reader import ReaderStats
 from ..spatial.navigation import NavGrid, Path, plan_path
 from ..sysid.worldcal import WorldCalibration
@@ -84,6 +85,7 @@ class Pilot:
         move: MoveActuator,
         *,
         interact: InteractActuator | None = None,
+        focus: WindowFocus | None = None,
         gains: PatrolGains | None = None,
         world_cal: WorldCalibration | str | None = None,
         recorder: Recorder | None = None,
@@ -98,6 +100,7 @@ class Pilot:
         self.look = look
         self.move = move
         self.interact = interact
+        self._focus = focus
         self.gains = gains or PatrolGains()
         if world_cal is not None:
             if not isinstance(world_cal, WorldCalibration):
@@ -141,7 +144,8 @@ class Pilot:
         from ..perception.capture import WindowsVRChatCapture
         from ..perception.reader import PoseReader
 
-        reader = PoseReader(source=WindowsVRChatCapture()).start()
+        capture = WindowsVRChatCapture()
+        reader = PoseReader(source=capture).start()
         osc = osc or VRChatOSC()
         osc.hud_enable(True)
         osc.set_run(True)
@@ -151,6 +155,7 @@ class Pilot:
             look or osc,
             osc,
             interact=interact or osc,
+            focus=capture,
             gains=gains,
             world_cal=world_cal,
             recorder=recorder,
@@ -260,6 +265,26 @@ class Pilot:
             if p is not None and p.time_ms != last:
                 return True
             time.sleep(0.02)
+        return False
+
+    def is_active(self) -> bool:
+        """VRChatが最前面か。focus未注入ならTrue。"""
+        return self._focus.is_active() if self._focus is not None else True
+
+    def wait_until_active(self, timeout: float = 30.0) -> bool:
+        """VRChatが最前面になるまで待つ。focus未注入ならTrue。"""
+        if self._focus is None:
+            return True
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if self._cancel.is_set():
+                return False
+            if self._focus.is_active():
+                return True
+            time.sleep(0.1)
+        logger.warning(
+            "VRChat not foreground for %.0fs (Alt+Tab to focus it?)", timeout
+        )
         return False
 
     def wait_until(

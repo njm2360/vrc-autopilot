@@ -73,6 +73,7 @@ def main() -> None:
     try:
         with Pilot.connect(grid, recorder=log) as pilot:
             pilot.wait_until_hud()
+            pilot.wait_until_active()
             for stop in build_route(pilot):
                 nav = stop.move(stop.goal, name=stop.name)
                 for name, xyz in stop.buttons:
