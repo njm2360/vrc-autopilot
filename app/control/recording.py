@@ -6,69 +6,72 @@ Recorder はフレームごとの行の記録先(CSV 等)の抽象。AxisAccumul
 """
 
 import csv
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, fields
 from datetime import datetime
 from pathlib import Path
 from typing import Protocol
 
 
+@dataclass
+class ControlRow:
+    t: float  # 開始からの経過秒
+    phase: str  # nav / translate / face / turn / align
+    target: str = ""  # ターゲット名
+    wp: int | None = None  # 追従中のウェイポイント番号(nav/translate)
+    dt: float | None = None  # 前フレームからの実経過秒
+    x: float | None = None
+    y: float | None = None
+    z: float | None = None
+    yaw: float | None = None
+    pitch: float | None = None
+    tx: float | None = None
+    ty: float | None = None
+    tz: float | None = None
+    dist: float | None = None  # ターゲットまでの水平距離[m]
+    yaw_err: float | None = None
+    pitch_err: float | None = None
+    lat_err: float | None = None  # 横方向誤差[m](alignのみ。+なら目標が右)
+    fwd_err: float | None = None  # 目標までの前方距離[m](translateのみ)
+    right_err: float | None = None  # 目標までの右方距離[m](translateのみ)
+    turn_p: float | None = None
+    turn_i: float | None = None
+    turn_d: float | None = None
+    turn: float | None = None  # yaw(LookHorizontal)PID内訳と出力
+    pitch_p: float | None = None
+    pitch_i: float | None = None
+    pitch_d: float | None = None
+    pitch_cmd: float | None = None
+    strafe_p: float | None = None
+    strafe_i: float | None = None
+    strafe_d: float | None = None
+    strafe: float | None = None  # Horizontal(横移動)PID内訳と出力(alignのみ)
+    fwd: float | None = None  # Vertical(前進)出力
+    fwd_factor: float | None = None  # 向きズレによる前進減衰係数
+
+
 class Recorder(Protocol):
-    def row(self, **kw) -> None: ...
+    def row(self, row: ControlRow) -> None: ...
 
 
 class NullRecorder:
-    def row(self, **kw) -> None:
+    def row(self, row: ControlRow) -> None:
         pass
 
 
 class ListRecorder:
-    """行を list[dict] に貯める Recorder(テスト・オフライン解析用)。"""
+    """行を list[ControlRow] に貯める Recorder(テスト・オフライン解析用)。"""
 
     def __init__(self):
-        self.rows: list[dict] = []
+        self.rows: list[ControlRow] = []
 
-    def row(self, **kw) -> None:
-        self.rows.append(kw)
+    def row(self, row: ControlRow) -> None:
+        self.rows.append(row)
 
 
 class ControlLog:
-    """行を CSV に書き出す Recorder(実機ログ・log-video の入力)。列は FIELDS 固定。"""
+    """行を CSV に書き出す Recorder(実機ログ・log-video の入力)。列は ControlRow に一元化。"""
 
-    FIELDS = [
-        "t",  # 開始からの経過秒
-        "phase",  # nav / translate(旧move) / face / turn / align
-        "target",  # ターゲット名
-        "wp",  # 追従中のウェイポイント番号(nav/moveのみ)
-        "dt",  # 前フレームからの実経過秒
-        "x",
-        "y",
-        "z",
-        "yaw",
-        "pitch",
-        "tx",
-        "ty",
-        "tz",
-        "dist",  # ターゲットまでの水平距離[m]
-        "yaw_err",
-        "pitch_err",
-        "lat_err",  # 横方向誤差[m](alignのみ。+なら目標が右)
-        "fwd_err",  # 目標までの前方距離[m](moveのみ)
-        "right_err",  # 目標までの右方距離[m](moveのみ)
-        "turn_p",
-        "turn_i",
-        "turn_d",
-        "turn",  # yaw(LookHorizontal)PID内訳と出力
-        "pitch_p",
-        "pitch_i",
-        "pitch_d",
-        "pitch_cmd",
-        "strafe_p",
-        "strafe_i",
-        "strafe_d",
-        "strafe",  # Horizontal(横移動)PID内訳と出力(alignのみ)
-        "fwd",  # Vertical(前進)出力
-        "fwd_factor",  # 向きズレによる前進減衰係数
-    ]
+    FIELDS = [f.name for f in fields(ControlRow)]
 
     @classmethod
     def timestamped(cls, dir_: str = "logs", prefix: str = "control") -> ControlLog:
@@ -79,11 +82,11 @@ class ControlLog:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._f = open(self.path, "w", newline="", encoding="utf-8")
-        self._w = csv.DictWriter(self._f, fieldnames=self.FIELDS, extrasaction="ignore")
+        self._w = csv.DictWriter(self._f, fieldnames=self.FIELDS)
         self._w.writeheader()
 
-    def row(self, **kw) -> None:
-        self._w.writerow({k: kw.get(k, "") for k in self.FIELDS})
+    def row(self, row: ControlRow) -> None:
+        self._w.writerow(asdict(row))
         self._f.flush()
 
     def close(self) -> None:

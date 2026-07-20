@@ -25,7 +25,7 @@ from .controller import (
     TranslateControllers,
 )
 from .guidance import forward_factor, heading_error, pitch_error, wrap180
-from .recording import AxisAccumulator, AxisMetrics, NullRecorder, Recorder
+from .recording import AxisAccumulator, AxisMetrics, ControlRow, NullRecorder, Recorder
 
 logger = logging.getLogger(__name__)
 
@@ -209,26 +209,28 @@ def follow_path(
 
             if track:
                 rec.row(
-                    t=now - t0,
-                    phase="nav",
-                    target=name,
-                    wp=seg + 1,
-                    dt=dt,
-                    x=pose.position[0],
-                    y=pose.position[1],
-                    z=pose.position[2],
-                    yaw=pose.yaw_deg,
-                    pitch=pose.pitch_deg,
-                    tx=target[0],
-                    tz=target[1],
-                    dist=end_dist,
-                    yaw_err=err,
-                    turn_p=nav.yaw.last_p,
-                    turn_i=nav.yaw.last_i,
-                    turn_d=nav.yaw.last_d,
-                    turn=turn,
-                    fwd=speed,
-                    fwd_factor=ff,
+                    ControlRow(
+                        t=now - t0,
+                        phase="nav",
+                        target=name,
+                        wp=seg + 1,
+                        dt=dt,
+                        x=pose.position[0],
+                        y=pose.position[1],
+                        z=pose.position[2],
+                        yaw=pose.yaw_deg,
+                        pitch=pose.pitch_deg,
+                        tx=target[0],
+                        tz=target[1],
+                        dist=end_dist,
+                        yaw_err=err,
+                        turn_p=nav.yaw.last_p,
+                        turn_i=nav.yaw.last_i,
+                        turn_d=nav.yaw.last_d,
+                        turn=turn,
+                        fwd=speed,
+                        fwd_factor=ff,
+                    )
                 )
                 yaw_acc.update(err, turn, now - t0, dt, gains.face_tol)
             if now - t0 > gains.nav_timeout:
@@ -327,23 +329,25 @@ def follow_path_translate(
 
             if track:
                 rec.row(
-                    t=now - t0,
-                    phase="translate",
-                    target=name,
-                    wp=idx,
-                    dt=dt,
-                    x=pose.position[0],
-                    y=pose.position[1],
-                    z=pose.position[2],
-                    yaw=pose.yaw_deg,
-                    pitch=pose.pitch_deg,
-                    tx=target[0],
-                    tz=target[1],
-                    dist=dist,
-                    fwd_err=fwd_err,
-                    right_err=right_err,
-                    fwd=fwd,
-                    strafe=strafe,
+                    ControlRow(
+                        t=now - t0,
+                        phase="translate",
+                        target=name,
+                        wp=idx,
+                        dt=dt,
+                        x=pose.position[0],
+                        y=pose.position[1],
+                        z=pose.position[2],
+                        yaw=pose.yaw_deg,
+                        pitch=pose.pitch_deg,
+                        tx=target[0],
+                        tz=target[1],
+                        dist=dist,
+                        fwd_err=fwd_err,
+                        right_err=right_err,
+                        fwd=fwd,
+                        strafe=strafe,
+                    )
                 )
             if now - t0 > gains.nav_timeout:
                 reason = "timeout"
@@ -435,26 +439,28 @@ def _face_loop(
 
             if track:
                 rec.row(
-                    t=now - t0,
-                    phase=phase,
-                    target=name,
-                    dt=dt,
-                    x=pose.position[0],
-                    y=pose.position[1],
-                    z=pose.position[2],
-                    yaw=pose.yaw_deg,
-                    pitch=pose.pitch_deg,
-                    **extra,
-                    yaw_err=yaw_err,
-                    pitch_err=pitch_err,
-                    turn_p=face.yaw.last_p,
-                    turn_i=face.yaw.last_i,
-                    turn_d=face.yaw.last_d,
-                    turn=turn,
-                    pitch_p=face.pitch.last_p,
-                    pitch_i=face.pitch.last_i,
-                    pitch_d=face.pitch.last_d,
-                    pitch_cmd=pitch_cmd,
+                    ControlRow(
+                        t=now - t0,
+                        phase=phase,
+                        target=name,
+                        dt=dt,
+                        x=pose.position[0],
+                        y=pose.position[1],
+                        z=pose.position[2],
+                        yaw=pose.yaw_deg,
+                        pitch=pose.pitch_deg,
+                        **extra,
+                        yaw_err=yaw_err,
+                        pitch_err=pitch_err,
+                        turn_p=face.yaw.last_p,
+                        turn_i=face.yaw.last_i,
+                        turn_d=face.yaw.last_d,
+                        turn=turn,
+                        pitch_p=face.pitch.last_p,
+                        pitch_i=face.pitch.last_i,
+                        pitch_d=face.pitch.last_d,
+                        pitch_cmd=pitch_cmd,
+                    )
                 )
                 yaw_acc.update(yaw_err, turn, now - t0, dt, gains.face_tol)
                 if pitch_acc is not None:
@@ -573,30 +579,32 @@ def strafe_align(
 
             if track:
                 rec.row(
-                    t=now - t0,
-                    phase="align",
-                    target=name,
-                    dt=dt,
-                    x=pose.position[0],
-                    y=pose.position[1],
-                    z=pose.position[2],
-                    yaw=pose.yaw_deg,
-                    pitch=pose.pitch_deg,
-                    tx=target_xyz[0],
-                    ty=target_xyz[1],
-                    tz=target_xyz[2],
-                    dist=dist,
-                    yaw_err=yaw_err,
-                    pitch_err=pitch_err,
-                    lat_err=lat_err,
-                    strafe_p=strafe.last_p,
-                    strafe_i=strafe.last_i,
-                    strafe_d=strafe.last_d,
-                    strafe=strafe_cmd,
-                    pitch_p=face.pitch.last_p,
-                    pitch_i=face.pitch.last_i,
-                    pitch_d=face.pitch.last_d,
-                    pitch_cmd=pitch_cmd,
+                    ControlRow(
+                        t=now - t0,
+                        phase="align",
+                        target=name,
+                        dt=dt,
+                        x=pose.position[0],
+                        y=pose.position[1],
+                        z=pose.position[2],
+                        yaw=pose.yaw_deg,
+                        pitch=pose.pitch_deg,
+                        tx=target_xyz[0],
+                        ty=target_xyz[1],
+                        tz=target_xyz[2],
+                        dist=dist,
+                        yaw_err=yaw_err,
+                        pitch_err=pitch_err,
+                        lat_err=lat_err,
+                        strafe_p=strafe.last_p,
+                        strafe_i=strafe.last_i,
+                        strafe_d=strafe.last_d,
+                        strafe=strafe_cmd,
+                        pitch_p=face.pitch.last_p,
+                        pitch_i=face.pitch.last_i,
+                        pitch_d=face.pitch.last_d,
+                        pitch_cmd=pitch_cmd,
+                    )
                 )
                 lat_acc.update(lat_err, strafe_cmd, now - t0, dt, gains.align_tol)
                 pitch_acc.update(pitch_err, pitch_cmd, now - t0, dt, gains.face_tol)

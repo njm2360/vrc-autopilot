@@ -83,8 +83,8 @@ class ListRec:
     def __init__(self):
         self.rows = []
 
-    def row(self, **kw):
-        self.rows.append(kw)
+    def row(self, row):
+        self.rows.append(row)
 
 
 def _gains(**kw):
@@ -126,7 +126,7 @@ def test_follow_path_scripted_walk_records_and_commands():
     assert res.frames >= 4
     assert len(rec.rows) >= 3  # フレームごとに記録
     assert any(fwd > 0.0 for fwd, _ in move.moves)  # 正対中は前進指令が出る
-    assert all(row["phase"] == "nav" for row in rec.rows)
+    assert all(row.phase == "nav" for row in rec.rows)
 
 
 def test_follow_path_empty_waypoints_is_noop_arrived():
