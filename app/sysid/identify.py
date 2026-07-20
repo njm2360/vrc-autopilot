@@ -708,9 +708,7 @@ class AxisModel:
     def onset(self) -> float:
         """不感帯オンセット(レートが立ち上がる折れ点。不感帯なしは 0.0)。
 
-        両符号平均の |指令|→|レート| が最大レートの ONSET_EPS_FRAC を超える点
-        から、しきい値ぶんの上振れを傾きで引き戻す。過大側の誤差は補償フロアの
-        ハンチングを誘発するため安全側(下)に寄せる。
+        eps 以下の最大指令 raw から onset = raw − rate(raw)/slope で逆外挿する。
         """
         cs = sorted({abs(c) for c, _ in self.points if c != 0.0})
         if not cs:
@@ -720,17 +718,17 @@ class AxisModel:
         if vmax <= 0.0:
             return 0.0
         eps = ONSET_EPS_FRAC * vmax
-        below = [c for c, r in zip(cs, mean_abs, strict=True) if r <= eps]
+        below = [(c, r) for c, r in zip(cs, mean_abs, strict=True) if r <= eps]
         if not below:
             return 0.0
-        raw = max(below)
+        raw, raw_rate = max(below)
         above = [(c, r) for c, r in zip(cs, mean_abs, strict=True) if c > raw]
         if not above:
             return raw
         xs = np.array([c - raw for c, _ in above])
         ys = np.array([r for _, r in above])
         slope = float(xs @ ys / (xs @ xs))
-        return max(0.0, raw - eps / slope) if slope > 0.0 else raw
+        return max(0.0, raw - raw_rate / slope) if slope > 0.0 else raw
 
 
 def identify_axis(

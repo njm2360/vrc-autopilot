@@ -71,7 +71,7 @@ def run_adaptive(plant: PlantModel, axis: str, **cfg_kw):
 
 def test_adaptive_finds_deadband_onset_and_slope():
     res = run_adaptive(make_plant(), "yaw")
-    # 折れ点(0.55)が決め打ちなしで見つかる(補正で安全側=下に出る)
+    # 折れ点(0.55)が決め打ちなしで見つかる(逆外挿で真値近傍)
     assert 0.50 <= res.model.onset <= 0.57
     assert res.model.rate(1.0) == pytest.approx(90.0, rel=0.1)
     assert abs(res.model.rate(0.3)) < 3.0  # 不感帯内はほぼゼロ
