@@ -71,6 +71,7 @@ class VRChatOSC:
     def close(self) -> None:
         self.stop()
         self.set_run(False)
+        self.client.close()
 
     def __enter__(self) -> VRChatOSC:
         return self

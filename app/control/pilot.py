@@ -149,17 +149,22 @@ class Pilot:
         osc = osc or VRChatOSC()
         osc.hud_enable(True)
         osc.set_run(True)
-        pilot = cls(
-            grid,
-            reader,
-            look or osc,
-            osc,
-            interact=interact or osc,
-            focus=capture,
-            gains=gains,
-            world_cal=world_cal,
-            recorder=recorder,
-        )
+        try:
+            pilot = cls(
+                grid,
+                reader,
+                look or osc,
+                osc,
+                interact=interact or osc,
+                focus=capture,
+                gains=gains,
+                world_cal=world_cal,
+                recorder=recorder,
+            )
+        except BaseException:
+            osc.close()
+            reader.stop()
+            raise
         pilot._osc = osc
         pilot._owns_io = True
         return pilot
