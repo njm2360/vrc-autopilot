@@ -475,7 +475,6 @@ wheels = [
 
 [[package]]
 name = "vrc-autopilot"
-version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "matplotlib" },
