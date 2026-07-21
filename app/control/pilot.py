@@ -407,8 +407,17 @@ class Pilot:
         return self._cancel.is_set()
 
     # ---- 移動(act) ----------------------------------------------------
-    def goto(self, xz: tuple[float, float], *, name: str = "goto") -> NavResult:
-        """xz へ経路計画して移動する(壁回避あり。視点は進行方向へ向く)。"""
+    def goto(
+        self,
+        xz: tuple[float, float],
+        *,
+        name: str = "goto",
+        pitch_at: tuple[float, float, float] | None = None,
+    ) -> NavResult:
+        """xz へ経路計画して移動する(壁回避あり。視点は進行方向へ向く)。
+
+        pitch_at((x,y,z))を渡すと、移動中にpitchを先合わせする
+        """
         pose = self.reader.get_latest()
         if pose is None:
             logger.warning("[%s] no current pose (HUD?)", name)
@@ -432,6 +441,7 @@ class Pilot:
             path.waypoints,
             self.gains,
             self.nav,
+            pitch_target=pitch_at,
             recorder=self.recorder,
             cancel=self._cancel,
             name=name,
@@ -440,11 +450,16 @@ class Pilot:
         return res
 
     def translate_to(
-        self, xz: tuple[float, float], *, name: str = "translate"
+        self,
+        xz: tuple[float, float],
+        *,
+        name: str = "translate",
+        pitch_at: tuple[float, float, float] | None = None,
     ) -> NavResult:
         """視点を回さず xz へ並進する(壁回避は goto と同じ plan_path)。
 
         前後+横移動で経路を追うため、横に曲がる経路では goto より遅い。
+        pitch_at((x,y,z))を渡すと、移動中にpitchを先合わせする。
         """
         pose = self.reader.get_latest()
         if pose is None:
@@ -469,6 +484,7 @@ class Pilot:
             path.waypoints,
             self.gains,
             self.translate,
+            pitch_target=pitch_at,
             recorder=self.recorder,
             cancel=self._cancel,
             name=name,
@@ -477,9 +493,16 @@ class Pilot:
         return res
 
     def follow(
-        self, waypoints: Iterable[tuple[float, float]], *, name: str = "follow"
+        self,
+        waypoints: Iterable[tuple[float, float]],
+        *,
+        name: str = "follow",
+        pitch_at: tuple[float, float, float] | None = None,
     ) -> NavResult:
-        """与えた waypoints をそのまま追従する(経路計画なし。goto の低レベル版)。"""
+        """与えた waypoints をそのまま追従する(経路計画なし。goto の低レベル版)。
+
+        pitch_at((x,y,z))を渡すと、移動中にpitchを先合わせする。
+        """
         return follow_path(
             self.reader,
             self.look,
@@ -487,6 +510,7 @@ class Pilot:
             list(waypoints),
             self.gains,
             self.nav,
+            pitch_target=pitch_at,
             recorder=self.recorder,
             cancel=self._cancel,
             name=name,
@@ -612,8 +636,13 @@ class Pilot:
         name: str = "button",
         standoff: float | None = None,
     ) -> tuple[NavResult, AimResult | None]:
-        """正面へ移動して照準するだけ(押さない)。押下まで一括なら activate()。"""
-        nav = self.goto(self.standoff_point(xyz, face_yaw_deg, standoff), name=name)
+        """正面へ移動して照準するだけ(押さない)。押下まで一括なら activate()。
+
+        pitch_at((x,y,z))を渡すと、移動中にpitchを先合わせする。
+        """
+        nav = self.goto(
+            self.standoff_point(xyz, face_yaw_deg, standoff), name=name, pitch_at=xyz
+        )
         if not nav.path_found:
             return nav, None
         return nav, self._aim_sequence(xyz, name)

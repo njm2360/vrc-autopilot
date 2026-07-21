@@ -51,6 +51,9 @@ def patrol_loops(g: PatrolGains) -> list[LoopSpec]:
         LoopSpec("face yaw", "yaw", g.turn_kp, g.turn_ki, g.turn_kd, True),
         LoopSpec("face pitch", "pitch", g.pitch_kp, g.pitch_ki, g.pitch_kd, True),
         LoopSpec("nav yaw", "yaw", g.nav_turn_kp, g.nav_turn_ki, g.nav_turn_kd, True),
+        LoopSpec(
+            "nav pitch", "pitch", g.nav_pitch_kp, g.nav_pitch_ki, g.nav_pitch_kd, True
+        ),
         LoopSpec("nav forward", "forward", g.fwd_kp, 0.0, g.fwd_kd, False),
         LoopSpec(
             "translate forward",
@@ -141,7 +144,7 @@ def save_bode_png(g: PatrolGains, plant: PlantModel, path) -> None:
     specs = patrol_loops(g)
     fig, axes = plt.subplots(4, 2, figsize=(14, 15))
     flat = axes.ravel()
-    for ax, spec in zip(flat, specs, strict=False):  # flat は 8 枠、specs は 7
+    for ax, spec in zip(flat, specs, strict=False):  # 余り枠が出たら下で消す
         m = loop_margins(spec, plant)
         L = loop_response(spec, m.K, m.deadtime_s, T, w)
         ax.semilogx(w, 20 * np.log10(np.abs(L)), color="tab:blue", lw=1.6)

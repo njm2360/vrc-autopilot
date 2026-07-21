@@ -29,15 +29,23 @@ def pitch_error(
     eye_xyz: tuple[float, float, float],
     cur_forward: tuple[float, float, float],
     target_xyz: tuple[float, float, float],
+    *,
+    min_horiz: float = 0.0,
 ) -> float:
     """視線の pitch 誤差[deg]。+ は「もっと上を向く必要」。
 
     現在 pitch は forward.y から、目標 pitch は視点→ボタンの仰角から求める。
+
+    min_horiz>0 なら水平距離をその値で下限クランプする(移動中の事前整合用)。真下付近でも
+    目標 pitch が ±90° へ発散せず、standoff 相当で頭打ちになって到着地点の仰角に一致する。
+    最終照準は真値が要るので既定 0。
     """
     dx = target_xyz[0] - eye_xyz[0]
     dy = target_xyz[1] - eye_xyz[1]
     dz = target_xyz[2] - eye_xyz[2]
     horiz = math.hypot(dx, dz)
+    if min_horiz > 0.0:
+        horiz = max(horiz, min_horiz)
     desired_pitch = math.degrees(math.atan2(dy, horiz))
     fy = max(-1.0, min(1.0, cur_forward[1]))
     current_pitch = math.degrees(math.asin(fy))

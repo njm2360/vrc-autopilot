@@ -54,6 +54,7 @@ class NavControllers:
 
     yaw: AxisController  # 進行方向へ向く(誤差=yaw[deg])
     forward: AxisController  # 最終ウェイポイントの減速(誤差=距離[m] → 速度)
+    pitch: AxisController  # 移動中の pitch 事前整合(誤差=pitch[deg]。未指定なら不使用)
 
 
 @dataclass
@@ -62,6 +63,7 @@ class TranslateControllers:
 
     forward: AxisController  # 誤差=目標までの前方距離[m] → Vertical指令
     strafe: AxisController  # 誤差=目標までの右方距離[m] → Horizontal指令
+    pitch: AxisController  # 移動中の pitch 事前整合(誤差=pitch[deg]。未指定なら不使用)
 
 
 @dataclass
@@ -97,6 +99,13 @@ class PatrolGains:
     nav_turn_ki: float = 0.025
     nav_turn_kd: float = 0.002
     nav_turn_deadzone: float = 0.50
+    # ---- 移動中(nav/translate)の pitch 事前整合: face pitchと同機構だが目標が動くので
+    #      tol は入れない(nav 節参照)。face pitchと同値だが独立に振れるよう別定数 ----
+    nav_pitch_kp: float = 0.07
+    nav_pitch_ki: float = 0.008
+    nav_pitch_kd: float = 0.0
+    nav_pitch_ilim: float = 0.5
+    nav_pitch_deadzone: float = 0.10
     # ---- 視点固定の並進(hold-view move): 進行方向へ回さず forward/strafe を体フレームで
     #      合成して経路を追う。誤差=目標までの残距離[m]の体フレーム成分。指令上限は speed。 ----
     translate_kp: float = 1.0  # 安全域 0.45〜約2.5(下は不感帯で失速、上は振動)
@@ -131,6 +140,21 @@ class PatrolGains:
     strafe_deadzone: float = 0.10
 
 
+def _nav_pitch_controller(g: PatrolGains) -> AxisController:
+    """移動中の pitch 事前整合の制御器(nav/translate 共通)。目標が動くのでtolは入れない"""
+    return AxisController(
+        PID(
+            kp=g.nav_pitch_kp,
+            ki=g.nav_pitch_ki,
+            kd=g.nav_pitch_kd,
+            out_min=-1.0,
+            out_max=1.0,
+            i_limit=g.nav_pitch_ilim,
+            out_floor=g.nav_pitch_deadzone,
+        )
+    )
+
+
 def nav_controllers(g: PatrolGains) -> NavControllers:
     """移動追従用の制御器を組む。yaw は face と同じ不感帯補償つき(tol は入れない。
     根拠と安定範囲は gain-tuning.md の nav 節)。"""
@@ -148,7 +172,7 @@ def nav_controllers(g: PatrolGains) -> NavControllers:
     forward = AxisController(
         PID(kp=g.fwd_kp, ki=0.0, kd=g.fwd_kd, out_min=0.0, out_max=g.speed, i_limit=0.0)
     )
-    return NavControllers(yaw=yaw, forward=forward)
+    return NavControllers(yaw=yaw, forward=forward, pitch=_nav_pitch_controller(g))
 
 
 def translate_controllers(g: PatrolGains) -> TranslateControllers:
@@ -172,7 +196,9 @@ def translate_controllers(g: PatrolGains) -> TranslateControllers:
             )
         )
 
-    return TranslateControllers(forward=axis(), strafe=axis())
+    return TranslateControllers(
+        forward=axis(), strafe=axis(), pitch=_nav_pitch_controller(g)
+    )
 
 
 def strafe_controller(g: PatrolGains) -> AxisController:

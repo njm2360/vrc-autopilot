@@ -137,6 +137,66 @@ def test_follow_path_empty_waypoints_is_noop_arrived():
     assert res.arrived and res.frames == 0
 
 
+def test_follow_path_pitch_free_by_default():
+    """pitch_target 未指定なら従来どおり pitch 指令は出さない(pitch=0 のまま)。"""
+    g = _gains(arrive_radius=0.35)
+    poses = [_pose(i + 1, (0.0, 1.6, z)) for i, z in enumerate([0.0, 0.5, 1.0, 2.0])]
+    reader = FakeReader(poses)
+    look, move = RecActuator(), RecActuator()
+    res = follow_path(
+        reader, look, move, [(0.0, 0.0), (0.0, 2.0)], g, nav_controllers(g)
+    )
+    assert res.arrived
+    assert all(pitch == 0.0 for _, pitch in look.looks)  # pitch 軸は触らない
+    assert res.pitch is None
+
+
+def test_follow_path_pitch_target_commands_pitch_up_for_high_target():
+    """頭上のターゲットを渡すと、移動中に pitch を上げる指令(+)が出て記録も残る。"""
+    g = _gains(arrive_radius=0.35)
+    # 眼高 1.6、ずっと水平を向いたまま +Z へ歩く。ターゲットは頭上(y=4.0)。
+    poses = [_pose(i + 1, (0.0, 1.6, z)) for i, z in enumerate([0.0, 0.5, 1.0, 2.0])]
+    reader = FakeReader(poses)
+    look, move = RecActuator(), RecActuator()
+    rec = ListRec()
+    res = follow_path(
+        reader,
+        look,
+        move,
+        [(0.0, 0.0), (0.0, 2.0)],
+        g,
+        nav_controllers(g),
+        pitch_target=(0.0, 4.0, 3.0),
+        recorder=rec,
+    )
+    assert res.arrived
+    assert any(pitch > 0.0 for _, pitch in look.looks)  # 上向き指令が出る
+    assert res.pitch is not None  # 応答指標が付く
+    assert all(row.pitch_err is not None and row.pitch_err > 0.0 for row in rec.rows)
+
+
+def test_follow_path_translate_pitch_target_commands_pitch_without_yaw():
+    """視点固定並進でも pitch だけは先合わせする(yaw 指令は 0 のまま)。"""
+    g = _gains(arrive_radius=0.35)
+    poses = [_pose(i + 1, (0.0, 1.6, z)) for i, z in enumerate([0.0, 0.5, 1.0, 2.0])]
+    reader = FakeReader(poses)
+    look, move = RecActuator(), RecActuator()
+    rec = ListRec()
+    res = follow_path_translate(
+        reader,
+        look,
+        move,
+        [(0.0, 0.0), (0.0, 2.0)],
+        g,
+        translate_controllers(g),
+        pitch_target=(0.0, 4.0, 3.0),
+        recorder=rec,
+    )
+    assert all(turn == 0.0 for turn, _ in look.looks)  # yaw は回さない
+    assert any(pitch > 0.0 for _, pitch in look.looks)  # pitch は先合わせする
+    assert res.pitch is not None  # 記録先があれば応答指標が付く
+
+
 # ---- aim_at(視点合わせだけ) --------------------------------------------
 def test_aim_at_converges_when_aligned():
     g = _gains(settle_frames=3, face_tol=1.0)

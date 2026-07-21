@@ -174,6 +174,22 @@ def _add_gain_args(parser) -> None:
         default=d.nav_turn_deadzone,
         help="nav yaw の不感帯補償",
     )
+    # 移動中の pitch 事前整合(goto/translate 共通)。誤差=ボタンへの pitch[deg]。tol なし。
+    parser.add_argument("--nav-pitch-kp", type=float, default=d.nav_pitch_kp)
+    parser.add_argument("--nav-pitch-ki", type=float, default=d.nav_pitch_ki)
+    parser.add_argument("--nav-pitch-kd", type=float, default=d.nav_pitch_kd)
+    parser.add_argument(
+        "--nav-pitch-ilim",
+        type=float,
+        default=d.nav_pitch_ilim,
+        help="nav pitch 積分上限",
+    )
+    parser.add_argument(
+        "--nav-pitch-deadzone",
+        type=float,
+        default=d.nav_pitch_deadzone,
+        help="nav pitch の不感帯補償",
+    )
     # 視点固定の並進(translate_to): 進行方向へ回さず前後+横で経路を追う。誤差=残距離[m]。
     parser.add_argument("--translate-kp", type=float, default=d.translate_kp)
     parser.add_argument("--translate-ki", type=float, default=d.translate_ki)

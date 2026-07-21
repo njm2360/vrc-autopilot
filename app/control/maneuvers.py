@@ -131,6 +131,7 @@ class NavResult:
     yaw: AxisMetrics | None = (
         None  # 進行方向 yaw の応答指標(制御フレームが無ければ None)
     )
+    pitch: AxisMetrics | None = None  # 移動中 pitch 事前整合の応答指標(未整合なら None)
 
 
 @dataclass
@@ -156,6 +157,7 @@ def follow_path(
     gains: PatrolGains,
     nav: NavControllers,
     *,
+    pitch_target: tuple[float, float, float] | None = None,
     clock: Clock = time,
     recorder: Recorder | None = None,
     cancel: threading.Event | None = None,
@@ -169,6 +171,7 @@ def follow_path(
 
     nav.yaw.reset()
     nav.forward.reset()
+    nav.pitch.reset()
     cum = _cum_arclen(wps)
     total = cum[-1]
     seg = 0
@@ -177,6 +180,7 @@ def follow_path(
     frames = 0
     reason = "arrived"
     yaw_acc = AxisAccumulator() if track else None
+    pitch_acc = AxisAccumulator() if (track and pitch_target is not None) else None
     try:
         while True:
             if cancel is not None and cancel.is_set():
@@ -204,7 +208,16 @@ def follow_path(
             turn = nav.yaw.update(err, dt)
             ff = forward_factor(err)
             speed = (nav.forward.update(end_dist, dt) if final else gains.speed) * ff
-            look.look(turn)
+            # 目標指定時のみ、移動しながらボタンへ pitch を先合わせ(yaw の経路追従とは独立)
+            if pitch_target is not None:
+                pitch_err = pitch_error(
+                    pose.position, pose.forward, pitch_target, min_horiz=gains.standoff
+                )
+                pitch_cmd = nav.pitch.update(pitch_err, dt)
+                look.look(turn, pitch_cmd)
+            else:
+                pitch_err = pitch_cmd = None
+                look.look(turn)
             move.move(forward=speed)
 
             if track:
@@ -224,15 +237,22 @@ def follow_path(
                         tz=target[1],
                         dist=end_dist,
                         yaw_err=err,
+                        pitch_err=pitch_err,
                         turn_p=nav.yaw.last_p,
                         turn_i=nav.yaw.last_i,
                         turn_d=nav.yaw.last_d,
                         turn=turn,
+                        pitch_p=nav.pitch.last_p if pitch_target is not None else None,
+                        pitch_i=nav.pitch.last_i if pitch_target is not None else None,
+                        pitch_d=nav.pitch.last_d if pitch_target is not None else None,
+                        pitch_cmd=pitch_cmd,
                         fwd=speed,
                         fwd_factor=ff,
                     )
                 )
                 yaw_acc.update(err, turn, now - t0, dt, gains.face_tol)
+                if pitch_acc is not None:
+                    pitch_acc.update(pitch_err, pitch_cmd, now - t0, dt, gains.face_tol)
             if now - t0 > gains.nav_timeout:
                 reason = "timeout"
                 logger.warning("[%s] nav timeout", name)
@@ -259,6 +279,7 @@ def follow_path(
         elapsed=elapsed,
         frames=frames,
         yaw=yaw_acc.snapshot() if (track and frames) else None,
+        pitch=pitch_acc.snapshot() if (pitch_acc is not None and frames) else None,
     )
 
 
@@ -270,6 +291,7 @@ def follow_path_translate(
     gains: PatrolGains,
     ctl: TranslateControllers,
     *,
+    pitch_target: tuple[float, float, float] | None = None,
     clock: Clock = time,
     recorder: Recorder | None = None,
     cancel: threading.Event | None = None,
@@ -283,11 +305,13 @@ def follow_path_translate(
 
     ctl.forward.reset()
     ctl.strafe.reset()
+    ctl.pitch.reset()
     idx = 1 if len(wps) > 1 else 0
     last_t: int | None = None
     last_time = t0 = clock.monotonic()
     frames = 0
     reason = "arrived"
+    pitch_acc = AxisAccumulator() if (track and pitch_target is not None) else None
     try:
         while idx < len(wps):
             if cancel is not None and cancel.is_set():
@@ -325,7 +349,17 @@ def follow_path_translate(
             fwd = ctl.forward.update(fwd_err, dt)
             strafe = ctl.strafe.update(right_err, dt)
             move.move(forward=fwd, strafe=strafe)
-            look.look(0.0, 0.0)  # ゼロ指令で前フェーズの残留視点指令を打ち消す
+            # yaw は回さず、目標指定時は pitch だけ先合わせ。未指定は従来どおり
+            # ゼロ指令で前フェーズの残留視点指令を打ち消す。
+            if pitch_target is not None:
+                pitch_err = pitch_error(
+                    pose.position, pose.forward, pitch_target, min_horiz=gains.standoff
+                )
+                pitch_cmd = ctl.pitch.update(pitch_err, dt)
+                look.look(0.0, pitch_cmd)
+            else:
+                pitch_err = pitch_cmd = None
+                look.look(0.0, 0.0)
 
             if track:
                 rec.row(
@@ -345,10 +379,17 @@ def follow_path_translate(
                         dist=dist,
                         fwd_err=fwd_err,
                         right_err=right_err,
+                        pitch_err=pitch_err,
+                        pitch_p=ctl.pitch.last_p if pitch_target is not None else None,
+                        pitch_i=ctl.pitch.last_i if pitch_target is not None else None,
+                        pitch_d=ctl.pitch.last_d if pitch_target is not None else None,
+                        pitch_cmd=pitch_cmd,
                         fwd=fwd,
                         strafe=strafe,
                     )
                 )
+                if pitch_acc is not None:
+                    pitch_acc.update(pitch_err, pitch_cmd, now - t0, dt, gains.face_tol)
             if now - t0 > gains.nav_timeout:
                 reason = "timeout"
                 logger.warning("[%s] translate timeout", name)
@@ -374,6 +415,7 @@ def follow_path_translate(
         path=None,
         elapsed=elapsed,
         frames=frames,
+        pitch=pitch_acc.snapshot() if (pitch_acc is not None and frames) else None,
     )
 
 
