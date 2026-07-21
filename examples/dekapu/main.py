@@ -1,10 +1,7 @@
 from collections.abc import Callable
 from typing import NamedTuple
 
-from app.control.maneuvers import NavResult
-from app.control.pilot import Pilot
-from app.mapping.mapper import RoomMapper
-from app.spatial.navigation import NavGrid
+from vrc_autopilot import NavGrid, NavResult, Pilot, RoomMapper
 
 
 class Stop(NamedTuple):

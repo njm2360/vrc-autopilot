@@ -14,13 +14,13 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from app.cli._logging import setup_logging
-from app.sysid.adaptive import (
+from vrc_autopilot.cli._logging import setup_logging
+from vrc_autopilot.sysid.adaptive import (
     AdaptiveConfig,
     AdaptiveResult,
     probe_axis_adaptive,
 )
-from app.sysid.identify import (
+from vrc_autopilot.sysid.identify import (
     AXES,
     AXIS_INPUT,
     PlantModel,
@@ -111,9 +111,9 @@ def _print_adaptive(res: AdaptiveResult) -> None:
 
 
 def _run_live(axes: list[str], out_dir: Path, args) -> None:
-    from app.control.osc import VRChatOSC
-    from app.perception.reader import PoseReader
-    from app.perception.spec import HUD_ENABLE_PARAM
+    from vrc_autopilot.control.osc import VRChatOSC
+    from vrc_autopilot.perception.reader import PoseReader
+    from vrc_autopilot.perception.spec import HUD_ENABLE_PARAM
 
     reader = PoseReader().start()
     osc = VRChatOSC(host=args.host, port=args.port)

@@ -4,7 +4,7 @@
 
 ## `decode-demo` — 6DoF 表示
 
-`pos`(ワールド座標[m])/ `yaw`(+Z基準[deg])/ `pitch`(上向き正[deg])/ `t`(同期時刻)を読み続けて表示する(`--stats` を付けると fps と成功率も出る)。グリッド定数は [app/perception/spec.py](../app/perception/spec.py) の確定値。変更する場合はシェーダー側と一致させること。
+`pos`(ワールド座標[m])/ `yaw`(+Z基準[deg])/ `pitch`(上向き正[deg])/ `t`(同期時刻)を読み続けて表示する(`--stats` を付けると fps と成功率も出る)。グリッド定数は [src/vrc_autopilot/perception/spec.py](../src/vrc_autopilot/perception/spec.py) の確定値。変更する場合はシェーダー側と一致させること。
 
 ## `map-room` — 部屋マップ記録
 

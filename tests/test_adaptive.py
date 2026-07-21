@@ -7,8 +7,12 @@
 
 import pytest
 
-from app.sysid.adaptive import AdaptiveConfig, _clean_levels, probe_axis_adaptive
-from app.sysid.identify import (
+from vrc_autopilot.sysid.adaptive import (
+    AdaptiveConfig,
+    _clean_levels,
+    probe_axis_adaptive,
+)
+from vrc_autopilot.sysid.identify import (
     AxisModel,
     PlantModel,
     ProbeRun,
@@ -18,7 +22,7 @@ from app.sysid.identify import (
     freeze_gap,
     identify_axis,
 )
-from app.sysid.sim_plant import SimClock, SimulatedVRChat
+from vrc_autopilot.sysid.sim_plant import SimClock, SimulatedVRChat
 
 # 不感帯 0.55 + 線形の視点軸ふう静特性(0.55 以下にごく遅いクロールあり)
 YAW_CURVE = [

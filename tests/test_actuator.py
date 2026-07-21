@@ -4,15 +4,15 @@ from __future__ import annotations
 
 import pytest
 
-from app.control.actuator import LookActuator, MouseLookActuator, MoveActuator
-from app.control.controller import (
+from vrc_autopilot.control.actuator import LookActuator, MouseLookActuator, MoveActuator
+from vrc_autopilot.control.controller import (
     AxisController,
     PatrolGains,
     face_controllers,
     nav_controllers,
 )
-from app.control.osc import VRChatOSC
-from app.control.pid import PID
+from vrc_autopilot.control.osc import VRChatOSC
+from vrc_autopilot.control.pid import PID
 
 
 def test_vrchat_osc_satisfies_both_actuator_protocols():

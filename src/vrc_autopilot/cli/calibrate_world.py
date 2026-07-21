@@ -3,10 +3,14 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from app.cli._logging import setup_logging
-from app.control.controller import PatrolGains
-from app.sysid.identify import AXIS_INPUT
-from app.sysid.worldcal import REF_SPEED, WorldCalibration, run_world_calibration
+from vrc_autopilot.cli._logging import setup_logging
+from vrc_autopilot.control.controller import PatrolGains
+from vrc_autopilot.sysid.identify import AXIS_INPUT
+from vrc_autopilot.sysid.worldcal import (
+    REF_SPEED,
+    WorldCalibration,
+    run_world_calibration,
+)
 
 
 def _print_result(cal: WorldCalibration) -> None:
@@ -43,9 +47,9 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=9000)
     args = parser.parse_args()
 
-    from app.control.osc import VRChatOSC
-    from app.perception.reader import PoseReader
-    from app.perception.spec import HUD_ENABLE_PARAM
+    from vrc_autopilot.control.osc import VRChatOSC
+    from vrc_autopilot.perception.reader import PoseReader
+    from vrc_autopilot.perception.spec import HUD_ENABLE_PARAM
 
     reader = PoseReader().start()
     osc = VRChatOSC(host=args.host, port=args.port)

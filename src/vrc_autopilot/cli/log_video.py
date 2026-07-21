@@ -15,8 +15,8 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw
 
-from app.mapping.mapper import RoomMapper
-from app.spatial.navigation import NavGrid
+from vrc_autopilot.mapping.mapper import RoomMapper
+from vrc_autopilot.spatial.navigation import NavGrid
 
 FOV_DEG = 90.0
 MAX_DIST = 25.0

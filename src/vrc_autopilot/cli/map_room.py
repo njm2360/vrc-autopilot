@@ -4,12 +4,12 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from app.cli._keys import key_events
-from app.cli._logging import setup_logging
-from app.mapping.live import LiveMap
-from app.mapping.mapper import RoomMapper
-from app.perception.capture import WindowsVRChatCapture
-from app.perception.reader import PoseReader
+from vrc_autopilot.cli._keys import key_events
+from vrc_autopilot.cli._logging import setup_logging
+from vrc_autopilot.mapping.live import LiveMap
+from vrc_autopilot.mapping.mapper import RoomMapper
+from vrc_autopilot.perception.capture import WindowsVRChatCapture
+from vrc_autopilot.perception.reader import PoseReader
 
 REWIND_DIST = 0.5  # z を1回押すたびに巻き戻す軌跡長 [m]
 REDRAW_HZ = 5.0  # ライブ地図の再描画レート
@@ -143,7 +143,7 @@ def main() -> None:
         print("no trajectory collected; nothing saved.")
         return
 
-    from app.mapping.draw import save_map_png
+    from vrc_autopilot.mapping.draw import save_map_png
 
     out_dir = Path("maps") / datetime.now().strftime("%Y%m%d_%H%M%S")
     npz = mapper.save(out_dir / "room")

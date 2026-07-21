@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.control.pid import PID
+from vrc_autopilot.control.pid import PID
 
 
 def test_pid_proportional_only():

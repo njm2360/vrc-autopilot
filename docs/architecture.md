@@ -27,7 +27,7 @@ VRChat 画面(HUDビットグリッド)
                           └─ DirectInput: MouseLookActuator ──► 相対マウス(視点のみ)
 ```
 
-## モジュール(`app/`)
+## モジュール(`src/vrc_autopilot/`)
 
 ### `core/` — 全層が参照する中核型
 

@@ -6,7 +6,7 @@ import math
 
 import pytest
 
-from app.control.guidance import (
+from vrc_autopilot.control.guidance import (
     aim_angle,
     forward_factor,
     heading_error,

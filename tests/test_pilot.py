@@ -12,25 +12,25 @@ import math
 import numpy as np
 import pytest
 
-from app.control.controller import (
+from vrc_autopilot.control.controller import (
     PatrolGains,
     face_controllers,
     nav_controllers,
     strafe_controller,
     translate_controllers,
 )
-from app.control.maneuvers import (
+from vrc_autopilot.control.maneuvers import (
     aim_at,
     follow_path,
     follow_path_translate,
     strafe_align,
     turn_to,
 )
-from app.control.pilot import Pilot
-from app.control.recording import AxisMetrics
-from app.core.pose import Pose
-from app.mapping.mapper import Bounds
-from app.spatial.navigation import NavGrid
+from vrc_autopilot.control.pilot import Pilot
+from vrc_autopilot.control.recording import AxisMetrics
+from vrc_autopilot.core.pose import Pose
+from vrc_autopilot.mapping.mapper import Bounds
+from vrc_autopilot.spatial.navigation import NavGrid
 
 
 def _pose(t: int, pos, yaw_deg: float = 0.0, pitch_deg: float = 0.0) -> Pose:

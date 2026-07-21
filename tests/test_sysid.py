@@ -9,14 +9,14 @@ import math
 import numpy as np
 import pytest
 
-from app.control.controller import (
+from vrc_autopilot.control.controller import (
     PatrolGains,
     face_controllers,
     nav_controllers,
 )
-from app.control.maneuvers import aim_at, follow_path, turn_to
-from app.control.recording import ListRecorder
-from app.sysid.identify import (
+from vrc_autopilot.control.maneuvers import aim_at, follow_path, turn_to
+from vrc_autopilot.control.recording import ListRecorder
+from vrc_autopilot.sysid.identify import (
     AxisModel,
     PlantModel,
     ProbeRun,
@@ -34,7 +34,7 @@ from app.sysid.identify import (
     run_pitch_probe,
     save_run,
 )
-from app.sysid.sim_plant import SimClock, SimulatedVRChat
+from vrc_autopilot.sysid.sim_plant import SimClock, SimulatedVRChat
 
 # VRChat 視点軸ふうの静特性: 0.55 以下はごく遅く、超えると急峻に立ち上がる
 YAW_CURVE = [

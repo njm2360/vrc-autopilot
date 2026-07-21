@@ -9,8 +9,8 @@ from itertools import pairwise
 import numpy as np
 import pytest
 
-from app.mapping.mapper import RoomMapper
-from app.spatial.navigation import NavGrid, plan_path
+from vrc_autopilot.mapping.mapper import RoomMapper
+from vrc_autopilot.spatial.navigation import NavGrid, plan_path
 
 
 def _trace(corners, step=0.05):
@@ -410,7 +410,7 @@ def test_gap_close_seals_narrow_gap():
 def test_gap_close_wider_gap_floods_interior_empty_grid(caplog):
     # gap_close=0.6 では 0.8m の隙間を塞ぎきれず、外部が室内へ流入して床がゼロになる。
     # 空グリッドでは nearest_free が何も見つけられず plan_path は None(範囲外ではない)。
-    with caplog.at_level(logging.WARNING, logger="app.spatial.navigation"):
+    with caplog.at_level(logging.WARNING, logger="vrc_autopilot.spatial.navigation"):
         grid = NavGrid.from_mapper(
             north_gap_mapper(0.8), cell=0.1, avatar_radius=0.25, gap_close=0.6
         )

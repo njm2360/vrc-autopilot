@@ -1,8 +1,8 @@
-from app.cli._keys import key_events
-from app.cli._logging import setup_logging
-from app.perception.capture import WindowsVRChatCapture
-from app.perception.reader import PoseReader
-from app.spatial.triangulate import Sighting, triangulate
+from vrc_autopilot.cli._keys import key_events
+from vrc_autopilot.cli._logging import setup_logging
+from vrc_autopilot.perception.capture import WindowsVRChatCapture
+from vrc_autopilot.perception.reader import PoseReader
+from vrc_autopilot.spatial.triangulate import Sighting, triangulate
 
 
 def main() -> None:

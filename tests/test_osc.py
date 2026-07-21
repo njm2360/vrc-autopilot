@@ -7,8 +7,8 @@ import socket
 import pytest
 from pythonosc.osc_message import OscMessage
 
-from app.control.osc import VRChatOSC
-from app.perception.spec import HUD_ENABLE_PARAM
+from vrc_autopilot.control.osc import VRChatOSC
+from vrc_autopilot.perception.spec import HUD_ENABLE_PARAM
 
 
 def _receiver():

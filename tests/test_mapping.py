@@ -7,8 +7,8 @@ from itertools import pairwise
 import numpy as np
 import pytest
 
-from app.core.pose import Pose
-from app.mapping.mapper import Bounds, RoomMapper
+from vrc_autopilot.core.pose import Pose
+from vrc_autopilot.mapping.mapper import Bounds, RoomMapper
 
 
 def rectangle_path(width=4.0, depth=6.0, step=0.1, x0=1.0, z0=-2.0):
@@ -334,7 +334,7 @@ def test_discard_segment_discards_current_segment_keeps_mode():
 # ---- レンダラ(matplotlib) ----------------------------------------------
 def test_save_map_png(tmp_path):
     pytest.importorskip("matplotlib")
-    from app.mapping.draw import save_map_png
+    from vrc_autopilot.mapping.draw import save_map_png
 
     m = RoomMapper(min_move=0.0)
     for x, z in rectangle_path(4.0, 6.0):

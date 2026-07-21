@@ -3,10 +3,10 @@ from dataclasses import replace
 
 import pytest
 
-from app.control.controller import PatrolGains
-from app.sysid.identify import AxisModel, PlantModel
-from app.sysid.sim_plant import SimClock, SimulatedVRChat
-from app.sysid.worldcal import (
+from vrc_autopilot.control.controller import PatrolGains
+from vrc_autopilot.sysid.identify import AxisModel, PlantModel
+from vrc_autopilot.sysid.sim_plant import SimClock, SimulatedVRChat
+from vrc_autopilot.sysid.worldcal import (
     CAL_AXES,
     MOVE_DEADBAND_CMD,
     REF_DEADTIME_S,
@@ -277,9 +277,9 @@ def test_scale_gains_scales_every_move_pid_term():
         "strafe_ki",
         "strafe_kd",
     ):
-        assert getattr(out.gains, name) == pytest.approx(getattr(base, name) / 2.0), (
-            name
-        )
+        assert getattr(out.gains, name) == pytest.approx(
+            getattr(base, name) / 2.0
+        ), name
 
 
 def _cruise_speed(cmd: float, s: float, ref: float) -> float:
@@ -515,9 +515,9 @@ def test_apply_raises_when_axis_missing():
 def _pilot_stubs():
     import numpy as np
 
-    from app.core.pose import Pose
-    from app.mapping.mapper import Bounds
-    from app.spatial.navigation import NavGrid
+    from vrc_autopilot.core.pose import Pose
+    from vrc_autopilot.mapping.mapper import Bounds
+    from vrc_autopilot.spatial.navigation import NavGrid
 
     class FakeReader:
         def get_latest(self):
@@ -550,7 +550,7 @@ def _pilot_stubs():
 
 
 def test_pilot_applies_world_cal_object():
-    from app.control.pilot import Pilot
+    from vrc_autopilot.control.pilot import Pilot
 
     base = PatrolGains()
     grid, reader, look, move = _pilot_stubs()
@@ -565,7 +565,7 @@ def test_pilot_applies_world_cal_object():
 
 
 def test_pilot_applies_world_cal_from_file_path(tmp_path):
-    from app.control.pilot import Pilot
+    from vrc_autopilot.control.pilot import Pilot
 
     base = PatrolGains()
     path = _cal(s_forward=2.0, s_strafe=2.0).save(tmp_path / "wc.json")
@@ -576,7 +576,7 @@ def test_pilot_applies_world_cal_from_file_path(tmp_path):
 
 
 def test_pilot_no_world_cal_leaves_gains_default():
-    from app.control.pilot import Pilot
+    from vrc_autopilot.control.pilot import Pilot
 
     grid, reader, look, move = _pilot_stubs()
     pilot = Pilot(grid, reader, look, move)
@@ -584,7 +584,7 @@ def test_pilot_no_world_cal_leaves_gains_default():
 
 
 def test_pilot_raises_on_unusable_world_cal():
-    from app.control.pilot import Pilot
+    from vrc_autopilot.control.pilot import Pilot
 
     grid, reader, look, move = _pilot_stubs()
     cal = _cal(

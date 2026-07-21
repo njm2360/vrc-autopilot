@@ -3,9 +3,9 @@
 import argparse
 import time
 
-from app.cli._logging import setup_logging
-from app.perception.capture import WindowNotFoundError, WindowsVRChatCapture
-from app.perception.reader import PoseReader
+from vrc_autopilot.cli._logging import setup_logging
+from vrc_autopilot.perception.capture import WindowNotFoundError, WindowsVRChatCapture
+from vrc_autopilot.perception.reader import PoseReader
 
 
 def main() -> None:

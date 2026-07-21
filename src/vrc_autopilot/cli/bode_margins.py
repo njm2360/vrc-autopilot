@@ -8,10 +8,10 @@ import argparse
 import math
 from pathlib import Path
 
-from app.cli._logging import setup_logging
-from app.control.controller import PatrolGains
-from app.control.loop_analysis import analyze_patrol, save_bode_png
-from app.sysid.identify import PlantModel
+from vrc_autopilot.cli._logging import setup_logging
+from vrc_autopilot.control.controller import PatrolGains
+from vrc_autopilot.control.loop_analysis import analyze_patrol, save_bode_png
+from vrc_autopilot.sysid.identify import PlantModel
 
 
 def main() -> None:

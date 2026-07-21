@@ -7,11 +7,11 @@ import math
 import numpy as np
 import pytest
 
-from app.perception.capture import ArrayFrameSource
-from app.perception.decode import DecodeStatus, decode_frame, decode_words
-from app.perception.encode import pack_pose_words, render_grid, render_pose
-from app.perception.reader import PoseReader
-from app.perception.spec import CAPTURE_H, CAPTURE_W, MAGIC
+from vrc_autopilot.perception.capture import ArrayFrameSource
+from vrc_autopilot.perception.decode import DecodeStatus, decode_frame, decode_words
+from vrc_autopilot.perception.encode import pack_pose_words, render_grid, render_pose
+from vrc_autopilot.perception.reader import PoseReader
+from vrc_autopilot.perception.spec import CAPTURE_H, CAPTURE_W, MAGIC
 
 SAMPLE_POSES = [
     (0, (0.0, 0.0, 0.0), (0.0, 0.0, 1.0), (0.0, 1.0, 0.0)),

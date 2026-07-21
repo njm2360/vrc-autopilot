@@ -1,10 +1,10 @@
-from app.control.controller import (
+from vrc_autopilot.control.controller import (
     PatrolGains,
     face_controllers,
     strafe_controller,
 )
-from app.control.maneuvers import strafe_align
-from app.core.pose import Pose
+from vrc_autopilot.control.maneuvers import strafe_align
+from vrc_autopilot.core.pose import Pose
 
 
 class _NullAct:

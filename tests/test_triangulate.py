@@ -5,8 +5,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from app.core.pose import Pose
-from app.spatial.triangulate import (
+from vrc_autopilot.core.pose import Pose
+from vrc_autopilot.spatial.triangulate import (
     Sighting,
     closest_point_to_rays,
     triangulate,
