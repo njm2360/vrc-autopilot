@@ -221,3 +221,6 @@ __marimo__/
 
 maps/
 logs/
+
+# hatch-vcs generated version file
+src/vrc_autopilot/_version.py
