@@ -3,7 +3,7 @@ import math
 import threading
 import time
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from ..core.pose import Pose
 from ..perception.capture import WindowFocus
@@ -418,12 +418,18 @@ class Pilot:
         """cancel() 済みで、resume() するまで操作が中断される状態か。"""
         return self._cancel.is_set()
 
+    def _gains_for(self, timeout: float | None, field: str) -> ControlTuning:
+        if timeout is None:
+            return self.gains
+        return replace(self.gains, **{field: timeout})
+
     # ---- 移動(act) ----------------------------------------------------
     def goto(
         self,
         xz: tuple[float, float],
         *,
         pitch_at: tuple[float, float, float] | None = None,
+        timeout: float | None = None,
     ) -> NavResult:
         """xz へ経路計画して移動する(壁回避あり。視点は進行方向へ向く)。
 
@@ -450,7 +456,7 @@ class Pilot:
             self.look,
             self.move,
             path.waypoints,
-            self.gains,
+            self._gains_for(timeout, "nav_timeout"),
             self.nav,
             pitch_target=pitch_at,
             recorder=self.recorder,
@@ -464,6 +470,7 @@ class Pilot:
         xz: tuple[float, float],
         *,
         pitch_at: tuple[float, float, float] | None = None,
+        timeout: float | None = None,
     ) -> NavResult:
         """視点を回さず xz へ並進する(壁回避は goto と同じ plan_path)。
 
@@ -491,7 +498,7 @@ class Pilot:
             self.look,
             self.move,
             path.waypoints,
-            self.gains,
+            self._gains_for(timeout, "nav_timeout"),
             self.translate,
             pitch_target=pitch_at,
             recorder=self.recorder,
@@ -505,6 +512,7 @@ class Pilot:
         waypoints: Iterable[tuple[float, float]],
         *,
         pitch_at: tuple[float, float, float] | None = None,
+        timeout: float | None = None,
     ) -> NavResult:
         """与えた waypoints をそのまま追従する(経路計画なし。goto の低レベル版)。
 
@@ -515,46 +523,56 @@ class Pilot:
             self.look,
             self.move,
             list(waypoints),
-            self.gains,
+            self._gains_for(timeout, "nav_timeout"),
             self.nav,
             pitch_target=pitch_at,
             recorder=self.recorder,
             cancel=self._cancel,
         )
 
-    def aim(self, xyz: tuple[float, float, float]) -> AimResult:
+    def aim(
+        self, xyz: tuple[float, float, float], *, timeout: float | None = None
+    ) -> AimResult:
         """target(x,y,z)へ視点(yaw/pitch)を向ける(体は動かさない)。"""
         return aim_at(
             self.reader,
             self.look,
             xyz,
-            self.gains,
+            self._gains_for(timeout, "face_timeout"),
             self.face,
             recorder=self.recorder,
             cancel=self._cancel,
         )
 
-    def align(self, xyz: tuple[float, float, float]) -> AimResult:
+    def align(
+        self, xyz: tuple[float, float, float], *, timeout: float | None = None
+    ) -> AimResult:
         """視点は回さず、体の横移動で target への横ずれを詰める(最終照準)。"""
         return strafe_align(
             self.reader,
             self.look,
             self.move,
             xyz,
-            self.gains,
+            self._gains_for(timeout, "align_timeout"),
             self.face,
             self.strafe,
             recorder=self.recorder,
             cancel=self._cancel,
         )
 
-    def turn_to(self, yaw_deg: float, pitch_deg: float | None = None) -> AimResult:
+    def turn_to(
+        self,
+        yaw_deg: float,
+        pitch_deg: float | None = None,
+        *,
+        timeout: float | None = None,
+    ) -> AimResult:
         """指定した yaw(必要なら pitch)へ視点だけ回す(座標でなく角度で指定)。"""
         return turn_to(
             self.reader,
             self.look,
             yaw_deg,
-            self.gains,
+            self._gains_for(timeout, "face_timeout"),
             self.face,
             pitch_deg=pitch_deg,
             recorder=self.recorder,
