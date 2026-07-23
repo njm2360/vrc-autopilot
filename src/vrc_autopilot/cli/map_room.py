@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import queue
 import threading
 import time
@@ -15,6 +16,31 @@ from vrc_autopilot.perception.reader import PoseReader
 
 REWIND_DIST = 0.5  # z を1回押すたびに巻き戻す軌跡長 [m]
 REDRAW_HZ = 5.0  # ライブ地図の再描画レート
+MIN_MOVE = 0.02  # 間引き距離 [m]
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="壁沿いに歩いて部屋の地図を作成する")
+    parser.add_argument("--out", default="maps", help="出力先ディレクトリ(既定: maps)")
+    parser.add_argument(
+        "--min-move",
+        type=float,
+        default=MIN_MOVE,
+        help="この距離未満の移動は間引く [m]",
+    )
+    parser.add_argument(
+        "--rewind-dist",
+        type=float,
+        default=REWIND_DIST,
+        help="1回あたりの巻き戻し距離 [m]",
+    )
+    parser.add_argument(
+        "--redraw-hz",
+        type=float,
+        default=REDRAW_HZ,
+        help="ライブ地図の再描画レート [Hz]",
+    )
+    return parser.parse_args()
 
 
 def _handle_key(
@@ -52,9 +78,10 @@ def _key_thread(
 
 
 def main() -> None:
+    args = _parse_args()
     setup_logging()
     reader = PoseReader(source=WindowsVRChatCapture())
-    mapper = RoomMapper()
+    mapper = RoomMapper(min_move=args.min_move)
     pause_evt = threading.Event()
     stop_evt = threading.Event()
     cmd_q: queue.Queue[str] = queue.Queue()
@@ -92,7 +119,7 @@ def main() -> None:
                 elif cmd == "inner":
                     mapper.set_mode("inner")
                 elif cmd == "rewind":
-                    n = mapper.rewind(REWIND_DIST)
+                    n = mapper.rewind(args.rewind_dist)
                     print(f"  rewind: dropped {n} pts (walk the wall again)")
                 elif cmd == "discard":
                     n = mapper.discard_segment()
@@ -111,7 +138,7 @@ def main() -> None:
 
             now = time.monotonic()
             paused = pause_evt.is_set()
-            if now - last_redraw >= 1.0 / REDRAW_HZ:
+            if now - last_redraw >= 1.0 / args.redraw_hz:
                 w, d = mapper.dimensions()
                 live.update(
                     mapper,
@@ -147,7 +174,7 @@ def main() -> None:
 
     from vrc_autopilot.mapping.draw import save_map_png
 
-    out_dir = Path("maps") / datetime.now().strftime("%Y%m%d_%H%M%S")
+    out_dir = Path(args.out) / datetime.now().strftime("%Y%m%d_%H%M%S")
     npz = mapper.save(out_dir / "room")
     s = mapper.to_dict()
     area = s["floor_area_polygon_m2"] or s["floor_area_bbox_m2"]
