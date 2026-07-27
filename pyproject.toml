@@ -21,6 +21,7 @@ dependencies = [
     "python-osc>=1.10",
     "matplotlib>=3.11",
     "pydirectinput>=1.0.4",
+    "pillow>=12.3.0",
 ]
 
 [project.urls]
