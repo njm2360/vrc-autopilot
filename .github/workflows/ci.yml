@@ -11,13 +11,22 @@ concurrency:
 
 jobs:
   check:
-    name: Lint & test
+    name: Test (${{ matrix.python }})
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v7
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7
+        with:
+          python-version: ${{ matrix.python }}
 
       - name: Lint (ruff)
         run: uv run --locked ruff check .
@@ -26,4 +35,21 @@ jobs:
         run: uv run --locked black --check .
 
       - name: Run tests
-        run: uv run --locked pytest
+        run: uv run --locked pytest --cov=vrc_autopilot --cov-report=xml
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          use_oidc: true
+          files: coverage.xml
+          flags: py${{ matrix.python }}
+          fail_ci_if_error: false
+
+  gate:
+    name: Lint & test
+    needs: check
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check matrix result
+        run: '[ "${{ needs.check.result }}" = "success" ]'

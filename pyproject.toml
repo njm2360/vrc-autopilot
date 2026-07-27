@@ -37,11 +37,7 @@ bode-margins = "vrc_autopilot.cli.bode_margins:main"
 log-video = "vrc_autopilot.cli.log_video:main"
 
 [dependency-groups]
-dev = [
-    "pytest>=9.1",
-    "black>=26.5",
-    "ruff>=0.15.22",
-]
+dev = ["pytest>=9.1", "black>=26.5", "ruff>=0.15.22", "pytest-cov>=7"]
 
 [build-system]
 requires = ["hatchling", "hatch-vcs"]
@@ -59,6 +55,9 @@ packages = ["src/vrc_autopilot"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.coverage.run]
+omit = ["*/vrc_autopilot/cli/*"]
 
 [tool.black]
 target-version = ["py312"]
