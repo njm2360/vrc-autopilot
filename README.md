@@ -3,6 +3,12 @@
 [![PyPI](https://img.shields.io/pypi/v/vrc-autopilot)](https://pypi.org/project/vrc-autopilot/)
 [![Python](https://img.shields.io/pypi/pyversions/vrc-autopilot)](https://pypi.org/project/vrc-autopilot/)
 [![License](https://img.shields.io/pypi/l/vrc-autopilot)](LICENSE)
+[![CI](https://github.com/njm2360/vrc-autopilot/actions/workflows/ci.yml/badge.svg)](https://github.com/njm2360/vrc-autopilot/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/njm2360/vrc-autopilot/graph/badge.svg)](https://codecov.io/gh/njm2360/vrc-autopilot)
+[![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+![Platform](https://img.shields.io/badge/platform-Windows-0078d4)
 
 [VRCPositionHUD](https://github.com/njm2360/vrc-position-hud)を利用してOSCで移動・視点を操作する自動化ツール
 
@@ -12,8 +18,10 @@
 
 ## 動作環境
 
-- Python 3.14
-- [uv](https://docs.astral.sh/uv/)
+- Windows 10/11
+- Python 3.12+
+- VRChat (デスクトップモード、OSC有効)
+- [VRCPositionHUD](https://github.com/njm2360/vrc-position-hud) を組み込んだアバター
 
 ## インストール
 
@@ -23,24 +31,24 @@ uv add vrc-autopilot
 
 ## サンプルコード
 
-移動・照準・押下は `Pilot` API で記述する。マップ・プラント・ボタン座標を渡して巡回ルートを組む。
+移動・照準・押下は `Pilot` API を使用して記述します。
 
 - [でかプ 軽量化スイッチ自動化](examples/dekapu/main.py)
   ※マップデータ同梱
 
 ## CLI
 
-`uv run <コマンド>` で実行する。フラグ詳細は各 `--help` で確認可能
+`uv run <コマンド>` で実行します。フラグ詳細は各 `--help` で確認可能です。
 
-| コマンド          | 用途                                                                         |
-| ----------------- | ---------------------------------------------------------------------------- |
-| `decode-demo`     | HUD を読み取り 6DoF を表示(動作確認とキャリブレーション)                     |
-| `map-room`        | 壁沿いに歩いて部屋マップを記録                                               |
-| `find-button`     | 複数地点からボタンを三角測量                                                 |
-| `probe-axes`      | 入力軸の応答特性を測って `plant.json` に同定(制御ゲインの前提)               |
-| `calibrate-world` | ワールドごとに変わる移動速度を測り、ゲインの倍率を補正                       |
-| `bode-margins`    | 同定プラント上で全制御ループの安定余裕(ωc/PM/GM)とボード線図を出す(実機不要) |
-| `log-video`       | 制御ログCSVを一人称3D+2D地図の動画(mp4)に再生                                |
+| コマンド          | 用途                                                               |
+| ----------------- | ------------------------------------------------------------------ |
+| `decode-demo`     | HUDを読み取り、座標と姿勢を表示するサンプル                        |
+| `map-room`        | 壁沿いに歩いて部屋マップを記録する                                 |
+| `find-button`     | 複数地点からボタンを三角測量して座標を推定する                     |
+| `probe-axes`      | 入力軸の応答特性を測ってプラントモデルを同定する                   |
+| `calibrate-world` | ワールドごとに変わる移動速度を測り、ゲインの倍率を補正             |
+| `bode-margins`    | 同定プラント上で全制御ループの安定余裕(ωc/PM/GM)とボード線図を出す |
+| `log-video`       | 制御ログCSVを一人称3D+2D地図の動画(mp4)に再生                      |
 
 ## 開発者向け
 

@@ -1,11 +1,13 @@
 [project]
 name = "vrc-autopilot"
 dynamic = ["version"]
-description = "VRChat AutoPilot"
+description = "VRChat OSC AutoPilot"
 readme = "README.md"
+authors = [{ name = "njm2360", email = "me@njm2360.com" }]
 requires-python = ">=3.12"
 license = "BSD-2-Clause"
 license-files = ["LICENSE"]
+keywords = ["vrchat", "osc", "autopilot", "automation"]
 classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",
@@ -13,6 +15,8 @@ classifiers = [
     "Programming Language :: Python :: 3.14",
     "Programming Language :: Python :: 3 :: Only",
     "Operating System :: Microsoft :: Windows",
+    "Topic :: Games/Entertainment",
+    "Typing :: Typed",
 ]
 dependencies = [
     "numpy>=2.5",
@@ -27,6 +31,8 @@ dependencies = [
 [project.urls]
 Homepage = "https://github.com/njm2360/vrc-autopilot"
 Repository = "https://github.com/njm2360/vrc-autopilot"
+Issues = "https://github.com/njm2360/vrc-autopilot/issues"
+Changelog = "https://github.com/njm2360/vrc-autopilot/releases"
 
 [project.scripts]
 decode-demo = "vrc_autopilot.cli.decode_demo:main"
