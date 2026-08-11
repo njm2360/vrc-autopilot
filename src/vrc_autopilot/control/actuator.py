@@ -11,6 +11,7 @@ HUD 表示切替はここに含めない(spec.HUD_ENABLE_PARAM を avatar_param 
 
 from __future__ import annotations
 
+import time
 from typing import Protocol, runtime_checkable
 
 
@@ -78,11 +79,12 @@ class MouseLookActuator:
 class MouseClickActuator:
     """pydirectinput の左クリックで interact する InteractActuator。"""
 
-    def __init__(self):
+    def __init__(self, hold: float = 0.05):
         import pydirectinput
 
         pydirectinput.PAUSE = 0.0
         self._pdi = pydirectinput
+        self._hold = hold
 
     def press(self) -> None:
         self._pdi.mouseDown()
@@ -91,4 +93,6 @@ class MouseClickActuator:
         self._pdi.mouseUp()
 
     def click(self) -> None:
-        self._pdi.click()
+        self.press()
+        time.sleep(self._hold)
+        self.release()
