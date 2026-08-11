@@ -197,6 +197,46 @@ def test_follow_path_translate_pitch_target_commands_pitch_without_yaw():
     assert res.pitch is not None  # 記録先があれば応答指標が付く
 
 
+def test_follow_path_pitch_prealign_capped_at_goal_angle():
+    g = _gains(arrive_radius=0.35)
+    # 目標の真横(水平2m)を通ってゴール(水平8m)へ離れる経路。先合わせの仰角は
+    # 現在地の真値(59.5°)ではなくゴールで必要になる角度で頭打ちになる
+    poses = [_pose(1, (0.0, 1.6, 0.0)), _pose(2, (0.0, 1.6, 10.0))]
+    rec = ListRec()
+    res = follow_path(
+        FakeReader(poses),
+        RecActuator(),
+        RecActuator(),
+        [Vec2(0.0, 0.0), Vec2(0.0, 10.0)],
+        g,
+        nav_controllers(g),
+        pitch_target=Vec3(0.0, 5.0, 2.0),
+        recorder=rec,
+    )
+    assert res.arrived
+    expected = math.degrees(math.atan2(5.0 - 1.6, 8.0))  # ゴール→目標の仰角
+    assert rec.rows[0].pitch_err == pytest.approx(expected)
+
+
+def test_follow_path_translate_pitch_prealign_capped_at_goal_angle():
+    g = _gains(arrive_radius=0.35)
+    poses = [_pose(1, (0.0, 1.6, 0.0)), _pose(2, (0.0, 1.6, 10.0))]
+    rec = ListRec()
+    res = follow_path_translate(
+        FakeReader(poses),
+        RecActuator(),
+        RecActuator(),
+        [Vec2(0.0, 0.0), Vec2(0.0, 10.0)],
+        g,
+        translate_controllers(g),
+        pitch_target=Vec3(0.0, 5.0, 2.0),
+        recorder=rec,
+    )
+    assert res.arrived
+    expected = math.degrees(math.atan2(5.0 - 1.6, 8.0))
+    assert rec.rows[0].pitch_err == pytest.approx(expected)
+
+
 # ---- aim_at(視点合わせだけ) --------------------------------------------
 def test_aim_at_converges_when_aligned():
     g = _gains(settle_frames=3, face_tol=1.0)

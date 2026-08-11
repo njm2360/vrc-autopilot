@@ -163,6 +163,12 @@ def follow_path(
     nav.yaw.reset()
     nav.forward.reset()
     nav.pitch.reset()
+    # 先合わせの仰角は最終WPで必要になる角度で頭打ちにする
+    pitch_min_horiz = (
+        max(gains.standoff, wps[-1].dist(pitch_target.xz))
+        if pitch_target is not None
+        else 0.0
+    )
     cum = _cum_arclen(wps)
     total = cum[-1]
     seg = 0
@@ -201,7 +207,7 @@ def follow_path(
             # 目標指定時のみ、移動しながらボタンへ pitch を先合わせ(yaw の経路追従とは独立)
             if pitch_target is not None:
                 pitch_err = pitch_error(
-                    pose.position, pose.forward, pitch_target, min_horiz=gains.standoff
+                    pose.position, pose.forward, pitch_target, min_horiz=pitch_min_horiz
                 )
                 pitch_cmd = nav.pitch.update(pitch_err, dt)
                 look.look(turn, pitch_cmd)
@@ -297,6 +303,12 @@ def follow_path_translate(
     ctl.forward.reset()
     ctl.strafe.reset()
     ctl.pitch.reset()
+    # 先合わせの仰角は最終WPで必要になる角度で頭打ちにする
+    pitch_min_horiz = (
+        max(gains.standoff, wps[-1].dist(pitch_target.xz))
+        if pitch_target is not None
+        else 0.0
+    )
     idx = 1 if len(wps) > 1 else 0
     last_t: int | None = None
     last_time = t0 = clock.monotonic()
@@ -343,7 +355,7 @@ def follow_path_translate(
             # ゼロ指令で前フェーズの残留視点指令を打ち消す。
             if pitch_target is not None:
                 pitch_err = pitch_error(
-                    pose.position, pose.forward, pitch_target, min_horiz=gains.standoff
+                    pose.position, pose.forward, pitch_target, min_horiz=pitch_min_horiz
                 )
                 pitch_cmd = ctl.pitch.update(pitch_err, dt)
                 look.look(0.0, pitch_cmd)
