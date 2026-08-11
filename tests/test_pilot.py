@@ -233,6 +233,28 @@ def test_turn_to_yaw_and_pitch_converges():
     assert abs(res.yaw_err) < g.face_tol and abs(res.pitch_err) < g.face_tol
 
 
+def test_turn_to_pitch_only_converges_and_holds_yaw():
+    g = _gains(settle_frames=3, face_tol=1.0)
+    # yaw_deg=None ならどこを向いていても不問。pitch が目標角に一致していれば収束
+    reader = FakeReader(
+        [
+            _pose(i + 1, (0.0, 1.0, 0.0), yaw_deg=130.0, pitch_deg=-20.0)
+            for i in range(5)
+        ]
+    )
+    look = RecActuator()
+    res = turn_to(reader, look, None, g, face_controllers(g), pitch_deg=-20.0)
+    assert res.converged and abs(res.pitch_err) < g.face_tol
+    assert res.yaw_err == 0.0  # yaw は制御されない
+    assert all(turn == 0.0 for turn, _ in look.looks)  # 旋回指令も出さない
+
+
+def test_pilot_turn_to_requires_an_axis():
+    pilot = Pilot(FakeReader([]), RecActuator(), RecActuator())
+    with pytest.raises(ValueError):
+        pilot.turn_to()
+
+
 def test_turn_to_pitch_none_leaves_pitch_metrics_none():
     g = _gains(settle_frames=3, face_tol=1.0)
     reader = FakeReader([_pose(i + 1, (0.0, 1.0, 0.0), yaw_deg=90.0) for i in range(5)])
