@@ -584,12 +584,17 @@ class Pilot:
 
     def turn_to(
         self,
-        yaw_deg: float,
+        yaw_deg: float | None = None,
         pitch_deg: float | None = None,
         *,
         timeout: float | None = None,
     ) -> AimResult:
-        """指定した yaw(必要なら pitch)へ視点だけ回す(座標でなく角度で指定)。"""
+        """指定した yaw / pitch へ視点だけ回す(座標でなく角度で指定)。
+
+        Noneの軸は制御せず現状維持する。両方NoneはValueError。
+        """
+        if yaw_deg is None and pitch_deg is None:
+            raise ValueError("turn_to: specify yaw_deg and/or pitch_deg")
         res = turn_to(
             self.reader,
             self.look,

@@ -705,7 +705,7 @@ def aim_at(
 def turn_to(
     reader: PoseSource,
     look: LookActuator,
-    yaw_deg: float,
+    yaw_deg: float | None,
     gains: ControlTuning,
     face: FaceControllers,
     *,
@@ -715,7 +715,8 @@ def turn_to(
     cancel: threading.Event | None = None,
 ) -> AimResult:
     def errors(pose: Pose) -> tuple[float, float]:
-        yaw_err = wrap180(yaw_deg - pose.yaw_deg)
+        # None の軸は誤差0=制御しない(現状維持)。yaw だけ・pitch だけの指定を許す
+        yaw_err = 0.0 if yaw_deg is None else wrap180(yaw_deg - pose.yaw_deg)
         return yaw_err, 0.0 if pitch_deg is None else (pitch_deg - pose.pitch_deg)
 
     return _face_loop(
